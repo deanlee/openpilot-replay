@@ -1,6 +1,63 @@
-# Replay
+# openpilot-replay
 
-`replay` allows you to simulate a driving session by replaying all messages logged during the use of openpilot. This provides a way to analyze and visualize system behavior as if it were live.
+**openpilot-replay** is a standalone C++ implementation of the **[openpilot replay tool](https://github.com/commaai/openpilot/tree/master/tools/replay)**.
+
+It allows you to **replay a recorded driving route** and publish all logged messages as if the system were running live, enabling analysis, visualization, debugging, and tooling integration.
+
+## Purpose
+
+This repository provides a **high-performance, self-contained replay tool** that can be built, run, and extended independently of the openpilot monorepo. It aims to be:
+
+- **Standalone** — works without the full openpilot stack
+- **Compatible** — works with existing openpilot data formats and workflows
+- **Efficient** — optimized for C++ performance while preserving replay fidelity
+
+## Prerequisites
+
+Before running or compiling **openpilot-replay**, install these dependencies.
+
+### Ubuntu / Debian
+
+```bash
+sudo apt update
+sudo apt install -y g++ clang capnproto libcurl4-openssl-dev libzmq3-dev libssl-dev libbz2-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev libavfilter-dev libffi-dev libgles2-mesa-dev libglfw3-dev libglib2.0-0 libjpeg-dev libncurses5-dev libusb-1.0-0-dev libzstd-dev libcapnp-dev opencl-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
+
+```
+
+## Clone, Compile
+
+### Clone the repository
+
+```bash
+git clone https://github.com/deanlee/openpilot-replay.git
+cd openpilot-replay
+git submodule update --init --recursive
+```
+
+### Install Python packages
+
+```bash
+python3 -m pip install --upgrade pip
+python3 -m pip install scons numpy cython
+```
+
+### Build
+
+```bash
+scons
+```
+
+## Download Precompiled Binary
+
+You can also download a precompiled binary from the [Releases](https://github.com/deanlee/openpilot-replay/releases) page:
+
+```bash
+# Make executable
+chmod +x replay-linux-x86_64
+
+# Run the demo route
+./replay-linux-x86_64 --demo
+```
 
 ## Setup
 
@@ -8,7 +65,7 @@ Before starting a replay, you need to authenticate with your comma account using
 
 ```bash
 # Authenticate to access routes from your comma account:
-python3 tools/lib/auth.py
+python3 openpilot/tools/lib/auth.py
 ```
 
 ## Replay a Remote Route
@@ -16,13 +73,13 @@ You can replay a route from your comma account by specifying the route name.
 
 ```bash
 # Start a replay with a specific route:
-tools/replay/replay <route-name>
+replay <route-name>
 
 # Example:
-tools/replay/replay 'a2a0ccea32023010|2023-07-27--13-01-19'
+replay 'a2a0ccea32023010|2023-07-27--13-01-19'
 
 # Replay the default demo route:
-tools/replay/replay --demo
+replay --demo
 ```
 
 ## Replay a Local Route
@@ -30,14 +87,14 @@ To replay a route stored locally on your machine, specify the route name and pro
 
 ```bash
 # Replay a local route
-tools/replay/replay <route-name> --data_dir="/path_to/route"
+replay <route-name> --data_dir="/path_to/route"
 
 # Example:
 # If you have a local route stored at /path_to_routes with segments like:
 # a2a0ccea32023010|2023-07-27--13-01-19--0
 # a2a0ccea32023010|2023-07-27--13-01-19--1
 # You can replay it like this:
-tools/replay/replay "a2a0ccea32023010|2023-07-27--13-01-19" --data_dir="/path_to_routes"
+replay "a2a0ccea32023010|2023-07-27--13-01-19" --data_dir="/path_to_routes"
 ```
 
 ## Send Messages via ZMQ
@@ -45,15 +102,15 @@ By default, replay sends messages via MSGQ. To switch to ZMQ, set the ZMQ enviro
 
 ```bash
 # Start replay and send messages via ZMQ:
-ZMQ=1 tools/replay/replay <route-name>
+ZMQ=1 replay <route-name>
 ```
 
 ## Usage
 For more information on available options and arguments, use the help command:
 
 ``` bash
-$ tools/replay/replay -h
-Usage: tools/replay/replay [options] route
+$ replay -h
+Usage: replay [options] route
 Mock openpilot components by publishing logged messages.
 
 Options:
@@ -87,56 +144,28 @@ Arguments:
 To visualize the replay within the openpilot UI, run the following commands:
 
 ```bash
-tools/replay/replay <route-name>
-cd selfdrive/ui && ./ui.py
+replay <route-name>
+cd openpilot/selfdrive/ui && ./ui.py
 ```
 
 ## Work with plotjuggler
 If you want to use replay with plotjuggler, you can stream messages by running:
 
 ```bash
-tools/replay/replay <route-name>
-tools/plotjuggler/juggle.py --stream
+replay <route-name>
+openpilot/tools/plotjuggler/juggle.py --stream
 ```
 
 ## watch3
 
-watch all three cameras simultaneously from your comma three routes with watch3
+watch all three cameras simultaneously from your comma three routes with openpilot watch3
 
 simply replay a route using the `--dcam` and `--ecam` flags:
 
 ```bash
 # start a replay
-cd tools/replay && ./replay --demo --dcam --ecam
+./replay --demo --dcam --ecam
 
 # then start watch3
-cd selfdrive/ui && ./watch3.py
-```
-
-![](https://i.imgur.com/IeaOdAb.png)
-
-## Stream CAN messages to your device
-
-Replay CAN messages as they were recorded using a [panda jungle](https://comma.ai/shop/products/panda-jungle). The jungle has 6x OBD-C ports for connecting all your comma devices. Check out the [jungle repo](https://github.com/commaai/panda_jungle) for more info.
-
-In order to run your device as if it was in a car:
-* connect a panda jungle to your PC
-* connect a comma device or panda to the jungle via OBD-C
-* run `can_replay.py`
-
-``` bash
-batman:replay$ ./can_replay.py -h
-usage: can_replay.py [-h] [route_or_segment_name]
-
-Replay CAN messages from a route to all connected pandas and jungles
-in a loop.
-
-positional arguments:
-  route_or_segment_name
-                        The route or segment name to replay. If not
-                        specified, a default public route will be
-                        used. (default: None)
-
-optional arguments:
-  -h, --help            show this help message and exit
+cd openpilot/selfdrive/ui && ./watch3.py
 ```

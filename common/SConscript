@@ -1,0 +1,5 @@
+Import("env", "arch")
+
+common_libs = ["params.cc", "util.cc", "ratekeeper.cc"]
+_common = env.Library("common", common_libs, LIBS="json11")
+Export("_common")

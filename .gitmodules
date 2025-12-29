@@ -1,0 +1,3 @@
+[submodule "msgq"]
+	path = msgq
+	url = https://github.com/commaai/msgq.git
