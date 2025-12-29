@@ -1,5 +1,12 @@
-moc_*
-*.moc
-
+libreplay.a
+libcereal.a
+libsocketmaster.a
+libcommon.a
+libjson11.a
+*.o
+*.pyc
+.sconsign.dblite
 replay
 tests/test_replay
+cereal/services.h
+cereal/gen
