@@ -19,31 +19,6 @@
 
 namespace {
 
-void I420ToNV12(
-    const uint8_t* src_y, int src_stride_y,
-    const uint8_t* src_u, int src_stride_u,
-    const uint8_t* src_v, int src_stride_v,
-    uint8_t* dst_y, int dst_stride_y,
-    uint8_t* dst_uv, int dst_stride_uv,
-    int width, int height) {
-  // Copy Y plane (identical)
-  for (int i = 0; i < height; ++i) {
-    memcpy(dst_y + i * dst_stride_y, src_y + i * src_stride_y, width);
-  }
-
-  // Interleave U and V into UV plane (NV12 is U then V per pair)
-  for (int i = 0; i < height / 2; ++i) {
-    const uint8_t* u_row = src_u + i * src_stride_u;
-    const uint8_t* v_row = src_v + i * src_stride_v;
-    uint8_t* uv_row = dst_uv + i * dst_stride_uv;
-
-    for (int j = 0; j < width / 2; ++j) {
-      uv_row[2 * j] = u_row[j];      // U
-      uv_row[2 * j + 1] = v_row[j];  // V
-    }
-  }
-}
-
 enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts) {
   enum AVPixelFormat *hw_pix_fmt = reinterpret_cast<enum AVPixelFormat *>(ctx->opaque);
   for (const enum AVPixelFormat *p = pix_fmts; *p != -1; p++) {
@@ -158,6 +133,7 @@ FFmpegVideoDecoder::~FFmpegVideoDecoder() {
   if (decoder_ctx) avcodec_free_context(&decoder_ctx);
   av_frame_free(&av_frame_);
   av_frame_free(&hw_frame_);
+  if (sws_ctx_) sws_freeContext(sws_ctx_);
 }
 
 bool FFmpegVideoDecoder::open(AVCodecParameters *codecpar, bool hw_decoder) {
@@ -281,12 +257,15 @@ bool FFmpegVideoDecoder::copyBuffer(AVFrame *f, VisionBuf *buf) {
       memcpy(buf->uv + i*buf->stride, f->data[1] + i*f->linesize[1], width);
     }
   } else {
-    I420ToNV12(f->data[0], f->linesize[0],
-                       f->data[1], f->linesize[1],
-                       f->data[2], f->linesize[2],
-                       buf->y, buf->stride,
-                       buf->uv, buf->stride,
-                       width, height);
+    if (!sws_ctx_) {
+      sws_ctx_ = sws_getContext(width, height, (AVPixelFormat)f->format,
+                               width, height, AV_PIX_FMT_NV12,
+                               SWS_BILINEAR, nullptr, nullptr, nullptr);
+    }
+
+    uint8_t* dst_data[2] = {buf->y, buf->uv};
+    int dst_linesize[2] = {(int)buf->stride, (int)buf->stride};
+    sws_scale(sws_ctx_, f->data, f->linesize, 0, height, dst_data, dst_linesize);
   }
   return true;
 }

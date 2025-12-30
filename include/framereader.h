@@ -14,6 +14,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
 }
 
 class VideoDecoder;
@@ -66,6 +67,7 @@ private:
   AVCodecContext *decoder_ctx = nullptr;
   AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
   AVBufferRef *hw_device_ctx = nullptr;
+  SwsContext *sws_ctx_ = nullptr;
 };
 
 #ifndef __APPLE__
