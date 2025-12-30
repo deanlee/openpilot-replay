@@ -296,7 +296,9 @@ std::vector<Event>::const_iterator Replay::publishEvents(std::vector<Event>::con
   uint64_t loop_start_ts = nanos_since_boot();
   double prev_replay_speed = speed_;
 
-  for (; !interrupt_requested_ && first != last; ++first) {
+  for (; first != last; ++first) {
+    if (interrupt_requested_.load(std::memory_order_relaxed)) break;
+
     const Event &evt = *first;
 
     int segment = toSeconds(evt.mono_time) / 60;
