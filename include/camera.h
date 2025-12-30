@@ -1,12 +1,13 @@
 #pragma once
 
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <tuple>
 #include <utility>
 
 #include "msgq/visionipc/visionipc_server.h"
-#include "common/queue.h"
 #include "framereader.h"
 #include "logreader.h"
 
@@ -23,10 +24,16 @@ protected:
   struct Camera {
     CameraType type;
     VisionStreamType stream_type;
-    int width;
-    int height;
+    int width = 0;
+    int height = 0;
     std::thread thread;
-    SafeQueue<std::pair<FrameReader*, const Event *>> queue;
+    std::mutex mutex;
+    std::condition_variable cv_ready;  // Producer waits: slot is free
+    std::condition_variable cv_sent;   // Consumer signals: frame sent
+    bool pending = false;
+    bool terminate = false;
+    FrameReader* fr = nullptr;
+    const Event* event = nullptr;
     std::set<VisionBuf *> cached_buf;
   };
   void startVipcServer();
@@ -38,6 +45,5 @@ protected:
       {.type = DriverCam, .stream_type = VISION_STREAM_DRIVER},
       {.type = WideRoadCam, .stream_type = VISION_STREAM_WIDE_ROAD},
   };
-  std::atomic<int> publishing_ = 0;
   std::unique_ptr<VisionIpcServer> vipc_server_;
 };

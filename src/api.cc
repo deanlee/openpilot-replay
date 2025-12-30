@@ -1,6 +1,7 @@
 
 #include "api.h"
 
+#include <curl/curl.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/evp.h>
