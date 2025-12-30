@@ -1,10 +1,9 @@
 Import('env', 'arch', 'common', 'messaging', 'visionipc', 'cereal')
 
 replay_env = env.Clone()
-replay_env['CCFLAGS'] += ['-Wno-deprecated-declarations']
 
 base_frameworks = []
-base_libs = [common, messaging, cereal, visionipc, 'm', 'ssl', 'crypto', 'pthread', 'zmq']
+base_libs = [common, messaging, cereal, visionipc, 'ssl', 'crypto', 'pthread', 'zmq']
 
 if arch == "Darwin":
   base_frameworks.append('OpenCL')
