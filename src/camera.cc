@@ -28,16 +28,13 @@ CameraServer::CameraServer(std::pair<int, int> camera_size[MAX_CAMERAS]) {
 
 CameraServer::~CameraServer() {
   for (auto &cam : cameras_) {
-    if (cam.thread.joinable()) {
-      // Clear the queue
-      std::pair<FrameReader*, const Event *> item;
-      while (cam.queue.try_pop(item)) {
-        --publishing_;
+     if (cam.thread.joinable()) {
+      {
+        std::unique_lock<std::mutex> lk(cam.mutex);
+        cam.terminate = true;
+        cam.cv_ready.notify_one();
       }
-
-      // Signal termination and join the thread
-      cam.queue.push({});
-      cam.thread.join();
+     cam.thread.join();
     }
   }
   vipc_server_.reset(nullptr);
@@ -63,9 +60,15 @@ void CameraServer::startVipcServer() {
 
 void CameraServer::cameraThread(Camera &cam) {
   while (true) {
-    const auto [fr, event] = cam.queue.pop();
-    if (!fr) break;
+    std::pair<FrameReader*, const Event*> work;
+    {
+      std::unique_lock<std::mutex> lk(cam.mutex);
+      cam.cv_ready.wait(lk, [&] { return cam.pending || cam.terminate; });
+      if (cam.terminate) break;
+      work = {cam.fr, cam.event};
+    }
 
+    auto [fr, event] = work;
     capnp::FlatArrayMessageReader reader(event->data);
     auto evt = reader.getRoot<cereal::Event>();
     auto eidx = capnp::AnyStruct::Reader(evt).getPointerSection()[0].getAs<cereal::EncodeIndex>();
@@ -86,7 +89,11 @@ void CameraServer::cameraThread(Camera &cam) {
     // Prefetch the next frame
     getFrame(cam, fr, segment_id + 1, frame_id + 1);
 
-    --publishing_;
+    {
+      std::unique_lock<std::mutex> lk(cam.mutex);
+      cam.pending = false;
+    }
+    cam.cv_sent.notify_one();
   }
 }
 
@@ -107,19 +114,27 @@ VisionBuf *CameraServer::getFrame(Camera &cam, FrameReader *fr, int32_t segment_
 
 void CameraServer::pushFrame(CameraType type, FrameReader *fr, const Event *event) {
   auto &cam = cameras_[type];
+  // Handle resolution change: drain and restart
   if (cam.width != fr->width || cam.height != fr->height) {
+    waitForSent();  // Wait for all current frames to finish
     cam.width = fr->width;
     cam.height = fr->height;
-    waitForSent();
     startVipcServer();
   }
 
-  ++publishing_;
-  cam.queue.push({fr, event});
+  {
+    std::unique_lock<std::mutex> lk(cam.mutex);
+    cam.cv_sent.wait(lk, [&] { return !cam.pending; });
+    cam.fr = fr;
+    cam.event = event;
+    cam.pending = true;
+  }
+  cam.cv_ready.notify_one();  // Wake up consumer
 }
 
 void CameraServer::waitForSent() {
-  while (publishing_ > 0) {
-    std::this_thread::yield();
+  for (auto &cam : cameras_) {
+    std::unique_lock<std::mutex> lk(cam.mutex);
+    cam.cv_sent.wait(lk, [&] { return !cam.pending; });
   }
 }
