@@ -2,16 +2,21 @@
 
 #include <algorithm>
 #include <utility>
+
+#include "common/util.h"
+#include "decompress.h"
 #include "filereader.h"
 #include "util.h"
-#include "common/util.h"
 
-bool LogReader::load(const std::string &url, std::atomic<bool> *abort, bool local_cache, int chunk_size, int retries) {
+const std::string BZ2_MAGIC = "BZh9";
+const std::string ZST_MAGIC = "\x28\xB5\x2F\xFD";
+
+bool LogReader::load(const std::string& url, std::atomic<bool>* abort, bool local_cache, int chunk_size, int retries) {
   std::string data = FileReader(local_cache, chunk_size, retries).read(url, abort);
   if (!data.empty()) {
-    if (url.find(".bz2") != std::string::npos || util::starts_with(data, "BZh9")) {
+    if (url.find(".bz2") != std::string::npos || util::starts_with(data, BZ2_MAGIC)) {
       data = decompressBZ2(data, abort);
-    } else if (url.find(".zst") != std::string::npos || util::starts_with(data, "\x28\xB5\x2F\xFD")) {
+    } else if (url.find(".zst") != std::string::npos || util::starts_with(data, ZST_MAGIC)) {
       data = decompressZST(data, abort);
     }
   }
@@ -39,17 +44,19 @@ bool LogReader::load(const char *data, size_t size, std::atomic<bool> *abort) {
       if (!filters_.empty()) {
         if (which >= filters_.size() || !filters_[which])
           continue;
-        auto buf = buffer_.allocate(event_data.size() * sizeof(capnp::word));
-        memcpy(buf, event_data.begin(), event_data.size() * sizeof(capnp::word));
+
+        size_t bytes = event_data.size() * sizeof(capnp::word);
+        void* buf = buffer_.allocate(bytes);
+        memcpy(buf, event_data.begin(), bytes);
         event_data = kj::arrayPtr((const capnp::word *)buf, event_data.size());
       }
 
       uint64_t mono_time = event.getLogMonoTime();
-      const Event &evt = events.emplace_back(which, mono_time, event_data);
+      events.emplace_back(which, mono_time, event_data);
       // Add encodeIdx packet again as a frame packet for the video stream
-      if (evt.which == cereal::Event::ROAD_ENCODE_IDX ||
-          evt.which == cereal::Event::DRIVER_ENCODE_IDX ||
-          evt.which == cereal::Event::WIDE_ROAD_ENCODE_IDX) {
+      if (which == cereal::Event::ROAD_ENCODE_IDX ||
+          which == cereal::Event::DRIVER_ENCODE_IDX ||
+          which == cereal::Event::WIDE_ROAD_ENCODE_IDX) {
         auto idx = capnp::AnyStruct::Reader(event).getPointerSection()[0].getAs<cereal::EncodeIndex>();
         if (idx.getType() == cereal::EncodeIndex::Type::FULL_H_E_V_C) {
           uint64_t sof = idx.getTimestampSof();

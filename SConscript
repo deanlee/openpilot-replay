@@ -11,7 +11,7 @@ else:
   base_libs.append('OpenCL')
 
 replay_lib_src = ["src/replay.cc", "src/consoleui.cc", "src/camera.cc", "src/filereader.cc", "src/logreader.cc", "src/framereader.cc",
-                  "src/route.cc", "src/util.cc", "src/seg_mgr.cc", "src/timeline.cc", "src/api.cc"]
+                  "src/route.cc", "src/util.cc", "src/seg_mgr.cc", "src/timeline.cc", "src/api.cc", "src/decompress.cc", "src/http.cc"]
 if arch != "Darwin":
   replay_lib_src.append("src/qcom_decoder.cc")
 replay_lib = replay_env.Library("replay", replay_lib_src, LIBS=base_libs, FRAMEWORKS=base_frameworks)

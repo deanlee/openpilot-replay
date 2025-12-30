@@ -1,6 +1,7 @@
 #include "consoleui.h"
 
 #include <time.h>
+
 #include <initializer_list>
 #include <string>
 #include <tuple>
@@ -9,6 +10,7 @@
 #include "common/ratekeeper.h"
 #include "common/util.h"
 #include "common/version.h"
+#include "http.h"
 
 namespace {
 

@@ -4,6 +4,7 @@
 
 #include "common/util.h"
 #include "hardware/hw.h"
+#include "http.h"
 #include "util.h"
 
 std::string cacheFilePath(const std::string &url) {
@@ -17,7 +18,7 @@ std::string cacheFilePath(const std::string &url) {
 }
 
 std::string FileReader::read(const std::string &file, std::atomic<bool> *abort) {
-  const bool is_remote = file.find("https://") == 0;
+  const bool is_remote = (file.compare(0, 8, "https://") == 0);
   const std::string local_file = is_remote ? cacheFilePath(file) : file;
   std::string result;
 
