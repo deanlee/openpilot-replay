@@ -292,8 +292,9 @@ void Replay::streamThread() {
 
 std::vector<Event>::const_iterator Replay::publishEvents(std::vector<Event>::const_iterator first,
                                                          std::vector<Event>::const_iterator last) {
-  uint64_t evt_start_ts = cur_mono_time_;
+  uint64_t evt_start_ts = first->mono_time;
   uint64_t loop_start_ts = nanos_since_boot();
+  uint64_t next_segment_check = 0;
   double prev_replay_speed = speed_;
 
   for (; first != last; ++first) {
@@ -301,10 +302,14 @@ std::vector<Event>::const_iterator Replay::publishEvents(std::vector<Event>::con
 
     const Event &evt = *first;
 
-    int segment = toSeconds(evt.mono_time) / 60;
-    if (current_segment_.load(std::memory_order_relaxed) != segment) {
-      current_segment_.store(segment, std::memory_order_relaxed);
-      seg_mgr_->setCurrentSegment(segment);
+    // Only check segment every ~1 second of log time
+    if (evt.mono_time > next_segment_check) {
+      int segment = toSeconds(evt.mono_time) / 60;
+      if (current_segment_.load(std::memory_order_relaxed) != segment) {
+        current_segment_.store(segment, std::memory_order_relaxed);
+        seg_mgr_->setCurrentSegment(segment);
+      }
+      next_segment_check = evt.mono_time + 1e9;
     }
 
     cur_mono_time_ = evt.mono_time;
