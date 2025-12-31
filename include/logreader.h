@@ -27,15 +27,15 @@ public:
 class LogReader {
 public:
   LogReader(const std::vector<bool> &filters = {}) { filters_ = filters; }
-  bool load(const std::string &url, std::atomic<bool> *abort = nullptr,
+  bool load(const std::string &url, bool low_memory = false, std::atomic<bool> *abort = nullptr,
             bool local_cache = false, int chunk_size = -1, int retries = 0);
-  bool load(const char *data, size_t size, std::atomic<bool> *abort = nullptr);
+  bool load(const char *data, size_t size, bool low_memory, std::atomic<bool> *abort = nullptr);
   std::vector<Event> events;
 
 private:
   void migrateOldEvents();
 
-  std::string raw_;
+  std::string raw_log_data_;
   bool requires_migration = true;
   std::vector<bool> filters_;
   MonotonicBuffer buffer_{1024 * 1024};

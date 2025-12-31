@@ -228,7 +228,7 @@ void Segment::loadFile(int id, const std::string file) {
     success = frames[id]->load((CameraType)id, file, flags & REPLAY_FLAG_NO_HW_DECODER, &abort_, local_cache, 20 * 1024 * 1024, 3);
   } else {
     log = std::make_unique<LogReader>(filters_);
-    success = log->load(file, &abort_, local_cache, 0, 3);
+    success = log->load(file, flags & REPLAY_FLAG_LOW_MEMORY, &abort_, local_cache, 0, 3);
   }
 
   if (!success) {
