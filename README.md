@@ -51,14 +51,21 @@ scons
 
 ## Download Precompiled Binary
 
-You can also download a precompiled binary from the [Releases](https://github.com/deanlee/openpilot-replay/releases) page:
+You can also download the binary for your platform from [Releases](https://github.com/deanlee/openpilot-replay/releases) page:
 
+### 1. Supported Platforms
+| Device | Architecture | Binary Name |
+| :--- | :--- | :--- |
+| **Linux PC** | x86_64 | `replay-linux-x86-64` |
+| **Comma 3 (Tici)** | aarch64 | `replay-tici-aarch64` |
+
+### 2. Usage
 ```bash
 # Make executable
-chmod +x replay-linux-x86_64
+chmod +x replay-*
 
 # Run the demo route
-./replay-linux-x86_64 --demo
+./replay-* --demo
 ```
 
 ## Setup
@@ -171,3 +178,9 @@ simply replay a route using the `--dcam` and `--ecam` flags:
 # then start watch3
 cd openpilot/selfdrive/ui && ./watch3.py
 ```
+
+## Contributors
+
+<a href="https://github.com/deanlee/openpilot-replay/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=deanlee/openpilot-replay" />
+</a>
