@@ -11,7 +11,7 @@
 const std::string BZ2_MAGIC = "BZh9";
 const std::string ZST_MAGIC = "\x28\xB5\x2F\xFD";
 
-bool LogReader::load(const std::string& url, std::atomic<bool>* abort, bool local_cache, int chunk_size, int retries) {
+bool LogReader::load(const std::string& url, bool low_memory, std::atomic<bool>* abort, bool local_cache, int chunk_size, int retries) {
   std::string data = FileReader(local_cache, chunk_size, retries).read(url, abort);
   if (!data.empty()) {
     if (url.find(".bz2") != std::string::npos || util::starts_with(data, BZ2_MAGIC)) {
@@ -21,13 +21,13 @@ bool LogReader::load(const std::string& url, std::atomic<bool>* abort, bool loca
     }
   }
 
-  bool success = !data.empty() && load(data.data(), data.size(), abort);
-  if (filters_.empty())
-    raw_ = std::move(data);
+  bool success = !data.empty() && load(data.data(), data.size(), low_memory, abort);
+  if (filters_.empty() || !low_memory)
+    raw_log_data_ = std::move(data);
   return success;
 }
 
-bool LogReader::load(const char *data, size_t size, std::atomic<bool> *abort) {
+bool LogReader::load(const char *data, size_t size, bool low_memory, std::atomic<bool> *abort) {
   try {
     events.reserve(65000);
     kj::ArrayPtr<const capnp::word> words((const capnp::word *)data, size / sizeof(capnp::word));
@@ -35,8 +35,10 @@ bool LogReader::load(const char *data, size_t size, std::atomic<bool> *abort) {
       capnp::FlatArrayMessageReader reader(words);
       auto event = reader.getRoot<cereal::Event>();
       auto which = event.which();
+
       auto event_data = kj::arrayPtr(words.begin(), reader.getEnd());
       words = kj::arrayPtr(reader.getEnd(), words.end());
+
       if (which == cereal::Event::Which::SELFDRIVE_STATE) {
         requires_migration = false;
       }
@@ -45,14 +47,17 @@ bool LogReader::load(const char *data, size_t size, std::atomic<bool> *abort) {
         if (which >= filters_.size() || !filters_[which])
           continue;
 
-        size_t bytes = event_data.size() * sizeof(capnp::word);
-        void* buf = buffer_.allocate(bytes);
-        memcpy(buf, event_data.begin(), bytes);
-        event_data = kj::arrayPtr((const capnp::word *)buf, event_data.size());
+        if (low_memory) {
+          size_t bytes = event_data.size() * sizeof(capnp::word);
+          void* buf = buffer_.allocate(bytes);
+          memcpy(buf, event_data.begin(), bytes);
+          event_data = kj::arrayPtr((const capnp::word *)buf, event_data.size());
+        }
       }
 
       uint64_t mono_time = event.getLogMonoTime();
       events.emplace_back(which, mono_time, event_data);
+
       // Add encodeIdx packet again as a frame packet for the video stream
       if (which == cereal::Event::ROAD_ENCODE_IDX ||
           which == cereal::Event::DRIVER_ENCODE_IDX ||
