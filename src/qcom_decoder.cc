@@ -1,7 +1,7 @@
 #include "qcom_decoder.h"
 
 #include <assert.h>
-#include "third_party/linux/include/v4l2-controls.h"
+#include "linux/include/v4l2-controls.h"
 #include <linux/videodev2.h>
 
 #include "common/util.h"
