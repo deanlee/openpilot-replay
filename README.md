@@ -1,3 +1,5 @@
+![Screenshot](assets/screenshot.png)
+
 # openpilot-replay
 
 **openpilot-replay** is a standalone C++ implementation of the **[openpilot replay tool](https://github.com/commaai/openpilot/tree/master/tools/replay)**.
