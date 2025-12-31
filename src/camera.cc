@@ -5,7 +5,7 @@
 
 #include <capnp/dynamic.h>
 
-#include "third_party/linux/include/msm_media_info.h"
+#include "linux/include/msm_media_info.h"
 #include "util.h"
 
 const int BUFFER_COUNT = 40;

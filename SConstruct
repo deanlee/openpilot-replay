@@ -59,14 +59,10 @@ env = Environment(
     "#",
     "#include",
     "#msgq",
-    "#third_party",
-    "#third_party/json11",
-    "#third_party/linux/include",
   ],
   LIBPATH=[
     "#common",
     "#msgq",
-    "#third_party",
   ],
   RPATH=[],
   CYTHONCFILESUFFIX=".cpp",
@@ -134,17 +130,12 @@ CacheDir(cache_dir)
 Clean(["."], cache_dir)
 
 # ********** start building stuff **********
-SConscript(['third_party/SConscript'])
 # Build common module
 SConscript(['common/SConscript'])
-Import('_common')
-common = [_common, 'json11']
-Export('common')
+Import("common")
 
-# Build messaging (cereal + msgq + socketmaster + their dependencies)
 # Enable swaglog include in submodules
 SConscript(['msgq/SConscript'])
-
 SConscript(['cereal/SConscript'])
 Import('socketmaster', 'msgq')
 messaging = [socketmaster, msgq, 'capnp', 'kj',]

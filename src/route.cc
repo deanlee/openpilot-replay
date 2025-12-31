@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <regex>
 
-#include "third_party/json11/json11.hpp"
 #include "hardware/hw.h"
 #include "api.h"
 #include "replay.h"
@@ -131,24 +130,26 @@ bool Route::loadFromServer(int retries) {
   return false;
 }
 
-bool Route::loadFromJson(const std::string &json) {
+bool Route::loadFromJson(const std::string& json_str) {
   const static std::regex rx(R"(\/(\d+)\/)");
-  std::string err;
-  auto jsonData = json11::Json::parse(json, err);
-  if (!err.empty()) {
-    rWarning("JSON parsing error: %s", err.c_str());
-    return false;
-  }
-  for (const auto &value : jsonData.object_items()) {
-    const auto &urlArray = value.second.array_items();
-    for (const auto &url : urlArray) {
-      std::string url_str = url.string_value();
-      std::smatch match;
-      if (std::regex_search(url_str, match, rx)) {
-        addFileToSegment(std::stoi(match[1]), url_str);
+
+  try {
+    auto data = json::parse(json_str);
+
+    for (const auto& url_list : data) {
+      if (!url_list.is_array()) continue;
+
+      for (const std::string& url : url_list) {
+        std::smatch match;
+        if (std::regex_search(url, match, rx)) {
+          addFileToSegment(std::stoi(match[1]), url);
+        }
       }
     }
+  } catch (const json::exception& e) {
+    rWarning("JSON error: %s", e.what());
   }
+
   return !segments_.empty();
 }
 

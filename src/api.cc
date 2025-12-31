@@ -76,26 +76,27 @@ std::string rsa_sign(const std::string &data) {
   return std::string(sig.begin(), sig.begin() + sig_len);
 }
 
-std::string create_jwt(const json11::Json &extra, int exp_time) {
-  int now = std::chrono::seconds(std::time(nullptr)).count();
+std::string create_jwt(const json &extra, int exp_time) {
+  int now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   std::string dongle_id = Params().get("DongleId");
 
-  // Create header and payload
-  json11::Json header = json11::Json::object{{"alg", "RS256"}};
-  auto payload = json11::Json::object{
+  // Create header and initial payload
+  json header = {{"alg", "RS256"}};
+  json payload = {
       {"identity", dongle_id},
       {"iat", now},
       {"nbf", now},
       {"exp", now + exp_time},
   };
-  // Merge extra payload
-  for (const auto &item : extra.object_items()) {
-    payload[item.first] = item.second;
+
+  // Merge extra payload (Cleaner nlohmann syntax)
+  if (!extra.is_null()) {
+    payload.update(extra);
   }
 
   // JWT construction
   std::string jwt = base64url_encode(header.dump()) + '.' +
-                    base64url_encode(json11::Json(payload).dump());
+                    base64url_encode(payload.dump());
 
   // Hash and sign
   std::string hash(SHA256_DIGEST_LENGTH, '\0');
@@ -105,19 +106,19 @@ std::string create_jwt(const json11::Json &extra, int exp_time) {
   return jwt + "." + base64url_encode(signature);
 }
 
-std::string create_token(bool use_jwt, const json11::Json &payloads, int expiry) {
+std::string create_token(bool use_jwt, const json &payloads, int expiry) {
   if (use_jwt) {
     return create_jwt(payloads, expiry);
   }
 
   std::string token_json = util::read_file(util::getenv("HOME") + "/.comma/auth.json");
-  std::string err;
-  auto json = json11::Json::parse(token_json, err);
-  if (!err.empty()) {
-    std::cerr << "Error parsing auth.json " << err << std::endl;
+  try {
+    auto j = json::parse(token_json);
+    return j.value("access_token", "");
+  } catch (const json::parse_error& e) {
+    std::cerr << "Error parsing auth.json: " << e.what() << std::endl;
     return "";
   }
-  return json["access_token"].string_value();
 }
 
 std::string httpGet(const std::string &url, long *response_code) {
