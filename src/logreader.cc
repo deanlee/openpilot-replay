@@ -34,7 +34,7 @@ bool LogReader::load(const char *data, size_t size, bool low_memory, std::atomic
     while (words.size() > 0 && !(abort && *abort)) {
       capnp::FlatArrayMessageReader reader(words);
       auto event = reader.getRoot<cereal::Event>();
-      auto which = event.which();
+      const auto which = event.which();
 
       auto event_data = kj::arrayPtr(words.begin(), reader.getEnd());
       words = kj::arrayPtr(reader.getEnd(), words.end());
@@ -55,7 +55,7 @@ bool LogReader::load(const char *data, size_t size, bool low_memory, std::atomic
         }
       }
 
-      uint64_t mono_time = event.getLogMonoTime();
+      const uint64_t mono_time = event.getLogMonoTime();
       events.emplace_back(which, mono_time, event_data);
 
       // Add encodeIdx packet again as a frame packet for the video stream
