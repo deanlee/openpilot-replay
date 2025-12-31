@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <capnp/dynamic.h>
 
 #include "cereal/gen/cpp/log.capnp.h"
 
@@ -51,10 +52,16 @@ void Timeline::buildTimeline(const Route &route, uint64_t route_start_ts, bool l
                              std::function<void(std::shared_ptr<LogReader>)> callback) {
   std::optional<size_t> current_engaged_idx, current_alert_idx;
 
+  auto event_schema = capnp::Schema::from<cereal::Event>().asStruct();
+  std::vector<bool> filters = std::vector<bool>(event_schema.getUnionFields().size(), false);
+  filters[cereal::Event::Which::CONTROLS_STATE] = true;
+  filters[cereal::Event::Which::SELFDRIVE_STATE] = true;
+  filters[cereal::Event::Which::USER_BOOKMARK] = true;
+
   for (const auto &segment : route.segments()) {
     if (should_exit_) break;
 
-    auto log = std::make_shared<LogReader>();
+    auto log = std::make_shared<LogReader>(filters);
     if (!log->load(segment.second.qlog, false, &should_exit_, local_cache, 0, 3) || log->events.empty()) {
       continue;  // Skip if log loading fails or no events
     }
