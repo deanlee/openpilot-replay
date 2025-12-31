@@ -98,8 +98,8 @@ private:
   double min_seconds_ = 0;
   double max_seconds_ = 0;
   SubMaster *sm_ = nullptr;
-  std::unique_ptr<PubMaster> pm_;
-  std::vector<const char*> sockets_;
+  Context *msg_ctx_ = nullptr;
+  std::vector<PubSocket*> sockets_;
   std::unique_ptr<CameraServer> camera_server_;
   std::atomic<uint32_t> flags_ = REPLAY_FLAG_NONE;
 

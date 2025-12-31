@@ -18,6 +18,7 @@ Replay::Replay(const std::string &route, std::vector<std::string> allow, std::ve
                SubMaster *sm, uint32_t flags, const std::string &data_dir, bool auto_source)
     : sm_(sm), flags_(flags), seg_mgr_(std::make_unique<SegmentManager>(route, flags, data_dir, auto_source)) {
   std::signal(SIGUSR1, interrupt_sleep_handler);
+  msg_ctx_ = Context::create();
 
   if (!(flags_ & REPLAY_FLAG_ALL_SERVICES)) {
     block.insert(block.end(), {"bookmarkButton", "uiDebug", "userBookmark"});
@@ -28,26 +29,23 @@ Replay::Replay(const std::string &route, std::vector<std::string> allow, std::ve
 
 void Replay::setupServices(const std::vector<std::string> &allow, const std::vector<std::string> &block) {
   auto event_schema = capnp::Schema::from<cereal::Event>().asStruct();
-  sockets_.resize(event_schema.getUnionFields().size(), nullptr);
+  sockets_.assign(event_schema.getUnionFields().size(), nullptr);
 
   std::vector<const char *> active_services;
   active_services.reserve(services.size());
 
-  for (const auto &[name, _] : services) {
+  for (const auto &[name, serv] : services) {
     bool is_blocked = std::find(block.begin(), block.end(), name) != block.end();
     bool is_allowed = allow.empty() || std::find(allow.begin(), allow.end(), name) != allow.end();
     if (is_allowed && !is_blocked) {
       uint16_t which = event_schema.getFieldByName(name).getProto().getDiscriminantValue();
-      sockets_[which] = name.c_str();
+      sockets_[which] = PubSocket::create(msg_ctx_, name, true, serv.queue_size);
       active_services.push_back(name.c_str());
     }
   }
 
   std::string services_str = join(active_services, ", ");
   rInfo("active services: %s", services_str.c_str());
-  if (!sm_) {
-    pm_ = std::make_unique<PubMaster>(active_services);
-  }
 }
 
 void Replay::setupSegmentManager(bool has_filters) {
@@ -75,6 +73,7 @@ Replay::~Replay() {
   }
   camera_server_.reset();
   seg_mgr_.reset();
+  delete msg_ctx_;
 }
 
 bool Replay::load() {
@@ -223,15 +222,16 @@ void Replay::publishMessage(const Event *e) {
 
   if (!sm_) {
     auto bytes = e->data.asBytes();
-    int ret = pm_->send(sockets_[e->which], (capnp::byte *)bytes.begin(), bytes.size());
+    int ret = sockets_[e->which]->send((char*)bytes.begin(), bytes.size());
     if (ret == -1) {
       rWarning("stop publishing %s due to multiple publishers error", sockets_[e->which]);
+      delete sockets_[e->which];
       sockets_[e->which] = nullptr;
     }
   } else {
-    capnp::FlatArrayMessageReader reader(e->data);
-    auto event = reader.getRoot<cereal::Event>();
-    sm_->update_msgs(nanos_since_boot(), {{sockets_[e->which], event}});
+    // capnp::FlatArrayMessageReader reader(e->data);
+    // auto event = reader.getRoot<cereal::Event>();
+    // sm_->update_msgs(nanos_since_boot(), {{sockets_[e->which], event}});
   }
 }
 
