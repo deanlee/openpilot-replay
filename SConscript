@@ -1,20 +1,22 @@
 Import('env', 'arch', 'common', 'messaging', 'visionipc', 'cereal')
 
-replay_env = env.Clone()
+is_darwin = (arch == "Darwin")
+frameworks = ['OpenCL'] if is_darwin else []
+opencl = [] if is_darwin else ['OpenCL']
 
-base_frameworks = []
-base_libs = [common, messaging, cereal, visionipc, 'ssl', 'crypto', 'pthread', 'zmq']
+src = Glob('src/*.cc')
+exclude = ['main.cc']
+if is_darwin:
+    exclude.append('qcom_decoder.cc')
 
-if arch == "Darwin":
-  base_frameworks.append('OpenCL')
-else:
-  base_libs.append('OpenCL')
+for f in exclude:
+    src.remove(File(f'src/{f}'))
 
-replay_lib_src = ["src/replay.cc", "src/consoleui.cc", "src/camera.cc", "src/filereader.cc", "src/logreader.cc", "src/framereader.cc",
-                  "src/route.cc", "src/util.cc", "src/seg_mgr.cc", "src/timeline.cc", "src/api.cc", "src/decompress.cc", "src/http.cc"]
-if arch != "Darwin":
-  replay_lib_src.append("src/qcom_decoder.cc")
-replay_lib = replay_env.Library("replay", replay_lib_src, LIBS=base_libs, FRAMEWORKS=base_frameworks)
-Export('replay_lib')
-replay_libs = [replay_lib, 'avutil', 'avcodec', 'avformat', "swscale", 'bz2', 'zstd', 'curl', 'ncurses'] + base_libs
-replay_env.Program("replay", ["src/main.cc"], LIBS=replay_libs, FRAMEWORKS=base_frameworks)
+libs = [common, messaging, cereal, visionipc, 'ssl', 'crypto', 'pthread', 'zmq',
+        'avutil', 'avcodec', 'avformat', 'swscale', 'bz2', 'zstd', 'curl', 'ncurses'] + opencl
+
+replay_lib = env.Library("replay", src, LIBS=libs, FRAMEWORKS=frameworks)
+replay_bin = env.Program("replay", ["src/main.cc"], LIBS=[replay_lib] + libs, FRAMEWORKS=frameworks)
+
+# Return objects so the parent can use them (e.g., for installation or aliases)
+Return('replay_lib')
