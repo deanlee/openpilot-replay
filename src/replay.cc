@@ -14,17 +14,19 @@ void notifyEvent(Callback &callback, Args &&...args) {
   if (callback) callback(std::forward<Args>(args)...);
 }
 
-Replay::Replay(const std::string &route, std::vector<std::string> allow, std::vector<std::string> block,
-               SubMaster *sm, uint32_t flags, const std::string &data_dir, bool auto_source)
-    : sm_(sm), flags_(flags), seg_mgr_(std::make_unique<SegmentManager>(route, flags, data_dir, auto_source)) {
+Replay::Replay(const ReplayConfig &cfg) : sm_(nullptr), flags_(cfg.flags) {
   std::signal(SIGUSR1, interrupt_sleep_handler);
   msg_ctx_ = Context::create();
 
+  auto block = cfg.block;
   if (!(flags_ & REPLAY_FLAG_ALL_SERVICES)) {
     block.insert(block.end(), {"bookmarkButton", "uiDebug", "userBookmark"});
   }
-  setupServices(allow, block);
-  setupSegmentManager(!allow.empty() || !block.empty());
+
+  setupServices(cfg.allow, block);
+
+  bool has_filters = !cfg.allow.empty() || !block.empty();
+  setupSegmentManager(cfg, has_filters);
 }
 
 void Replay::setupServices(const std::vector<std::string> &allow, const std::vector<std::string> &block) {
@@ -48,7 +50,8 @@ void Replay::setupServices(const std::vector<std::string> &allow, const std::vec
   rInfo("active services: %s", services_str.c_str());
 }
 
-void Replay::setupSegmentManager(bool has_filters) {
+void Replay::setupSegmentManager(const ReplayConfig &config, bool has_filters) {
+  seg_mgr_ = std::make_unique<SegmentManager>(config.route, config.flags, config.data_dir, config.auto_source);
   seg_mgr_->setCallback([this]() { handleSegmentMerge(); });
 
   if (has_filters) {
@@ -59,7 +62,6 @@ void Replay::setupSegmentManager(bool has_filters) {
     seg_mgr_->setFilters(filters);
   }
 }
-
 
 Replay::~Replay() {
   if (stream_thread_.joinable()) {

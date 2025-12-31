@@ -27,10 +27,22 @@ enum REPLAY_FLAGS {
   REPLAY_FLAG_LOW_MEMORY = 0x1000,
 };
 
+struct ReplayConfig {
+  std::string route;
+  std::vector<std::string> allow;
+  std::vector<std::string> block;
+  std::string data_dir;
+  std::string prefix;
+  uint32_t flags = REPLAY_FLAG_NONE;
+  bool auto_source = false;
+  int start_seconds = 0;
+  int cache_segments = -1;
+  float playback_speed = -1;
+};
+
 class Replay {
 public:
-  Replay(const std::string &route, std::vector<std::string> allow, std::vector<std::string> block, SubMaster *sm = nullptr,
-         uint32_t flags = REPLAY_FLAG_NONE, const std::string &data_dir = "", bool auto_source = false);
+  Replay(const ReplayConfig &cfg);
   ~Replay();
   bool load();
   RouteLoadError lastRouteError() const { return route().lastError(); }
@@ -67,7 +79,7 @@ public:
 
 private:
   void setupServices(const std::vector<std::string> &allow, const std::vector<std::string> &block);
-  void setupSegmentManager(bool has_filters);
+  void setupSegmentManager(const ReplayConfig &config, bool has_filters);
   void startStream(const std::shared_ptr<Segment> segment);
   void streamThread();
   void handleSegmentMerge();

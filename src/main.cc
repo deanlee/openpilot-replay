@@ -34,19 +34,6 @@ Options:
   -h, --help         Show this help message
 )";
 
-struct ReplayConfig {
-  std::string route;
-  std::vector<std::string> allow;
-  std::vector<std::string> block;
-  std::string data_dir;
-  std::string prefix;
-  uint32_t flags = REPLAY_FLAG_NONE;
-  bool auto_source = false;
-  int start_seconds = 0;
-  int cache_segments = -1;
-  float playback_speed = -1;
-};
-
 bool parseArgs(int argc, char *argv[], ReplayConfig &config) {
   const struct option cli_options[] = {
       {"allow", required_argument, nullptr, 'a'},
@@ -138,7 +125,7 @@ int main(int argc, char *argv[]) {
     op_prefix = std::make_unique<OpenpilotPrefix>(config.prefix);
   }
 
-  Replay replay(config.route, config.allow, config.block, nullptr, config.flags, config.data_dir, config.auto_source);
+  Replay replay(config);
   if (config.cache_segments > 0) {
     replay.setSegmentCacheLimit(config.cache_segments);
   }
