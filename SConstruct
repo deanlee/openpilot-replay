@@ -58,6 +58,7 @@ env = Environment(
   CPPPATH=[
     "#",
     "#include",
+    '#include/linux/include',
     "#msgq",
   ],
   LIBPATH=[
