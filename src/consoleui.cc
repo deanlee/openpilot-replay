@@ -9,7 +9,6 @@
 
 #include "common/ratekeeper.h"
 #include "common/util.h"
-#include "common/version.h"
 #include "http.h"
 
 namespace {
@@ -126,7 +125,7 @@ void ConsoleUI::initWindows() {
 
   // set the title bar
   wbkgd(w[Win::Title], A_REVERSE);
-  mvwprintw(w[Win::Title], 0, 3, "openpilot replay %s", COMMA_VERSION);
+  mvwprintw(w[Win::Title], 0, 3, "openpilot replay 1.0.0");
 
   // show windows on the real screen
   refresh();
