@@ -5,10 +5,7 @@
 #include <linux/videodev2.h>
 
 #include "common/util.h"
-
-#define LOGD printf
-#define LOGE printf
-#define LOG printf
+#include "util.h"
 
 // echo "0xFFFF" > /sys/kernel/debug/msm_vidc/debug_level
 
@@ -35,12 +32,12 @@ MsmVidc::~MsmVidc() {
 }
 
 bool MsmVidc::init(const char* dev, size_t width, size_t height, uint64_t codec) {
-  LOG("Initializing msm_vidc device %s", dev);
+  rInfo("Initializing msm_vidc device %s", dev);
   this->w = width;
   this->h = height;
   this->fd = open(dev, O_RDWR, 0);
   if (fd < 0) {
-    LOGE("failed to open video device %s", dev);
+    rError("failed to open video device %s", dev);
     return false;
   }
   subscribeEvents();
@@ -74,7 +71,7 @@ VisionBuf* MsmVidc::decodeFrame(AVPacket *pkt, VisionBuf *buf) {
     }
 
     if (poll(pfd, nfds, -1) < 0) {
-      LOGE("poll() error: %d", errno);
+      rError("poll() error: %d", errno);
       return nullptr;
     }
 
@@ -105,7 +102,7 @@ VisionBuf* MsmVidc::processEvents() {
         handleEvent();
       }
     } else {
-      LOGE("Unexpected event on fd %d", pfd[idx].fd);
+      rError("Unexpected event on fd %d", pfd[idx].fd);
     }
   }
   return nullptr;
@@ -155,7 +152,7 @@ bool MsmVidc::setPlaneFormat(enum v4l2_buf_type type, uint32_t fourcc) {
       this->out_buf_addr[i] = (char *)this->out_buf.addr + this->out_buf_off[i];
       this->out_buf_flag[i] = false;
     }
-    LOGD("Set output buffer size to %d, count %d, addr %p", this->out_buf_size, OUTPUT_BUFFER_COUNT, this->out_buf.addr);
+    rDebug("Set output buffer size to %d, count %d, addr %p", this->out_buf_size, OUTPUT_BUFFER_COUNT, this->out_buf.addr);
   } else if (type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
     request_buffers(this->fd, type, CAPTURE_BUFFER_COUNT);
     util::safe_ioctl(fd, VIDIOC_G_FMT, &fmt, "VIDIOC_G_FMT failed");
@@ -168,7 +165,7 @@ bool MsmVidc::setPlaneFormat(enum v4l2_buf_type type, uint32_t fourcc) {
       this->cap_bufs[i].allocate(alloc_size);
       this->cap_bufs[i].init_yuv(pix->width, pix->height, y_stride, uv_offset);
     }
-    LOGD("Set capture buffer size to %d, count %d, addr %p, extradata size %d",
+    rDebug("Set capture buffer size to %d, count %d, addr %p, extradata size %d",
       pix->plane_fmt[0].sizeimage, CAPTURE_BUFFER_COUNT, this->cap_bufs[0].addr, pix->plane_fmt[1].sizeimage);
   }
   return true;
@@ -187,7 +184,7 @@ bool MsmVidc::restartCapture() {
   // stop if already initialized
   enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   if (this->initialized) {
-    LOGD("Restarting capture, flushing buffers...");
+    rDebug("Restarting capture, flushing buffers...");
     util::safe_ioctl(this->fd, VIDIOC_STREAMOFF, &type, "VIDIOC_STREAMOFF CAPTURE failed");
     struct v4l2_requestbuffers reqbuf = {.type = type, .memory = V4L2_MEMORY_USERPTR};
     util::safe_ioctl(this->fd, VIDIOC_REQBUFS, &reqbuf, "VIDIOC_REQBUFS failed");
@@ -320,13 +317,13 @@ bool MsmVidc::handleEvent() {
       unsigned int width    = ptr[1];
       this->w               = width;
       this->h               = height;
-      LOGD("Port Reconfig received insufficient, new size %ux%u, flushing capture bufs...", width, height); // This is normal
+      rDebug("Port Reconfig received insufficient, new size %ux%u, flushing capture bufs...", width, height); // This is normal
       struct v4l2_decoder_cmd dec;
       dec.flags = V4L2_QCOM_CMD_FLUSH_CAPTURE;
       dec.cmd = V4L2_QCOM_CMD_FLUSH;
       util::safe_ioctl(this->fd, VIDIOC_DECODER_CMD, &dec, "VIDIOC_DECODER_CMD FLUSH_CAPTURE failed");
       this->reconfigure_pending = true;
-      LOGD("Waiting for flush done event to reconfigure capture queue");
+      rDebug("Waiting for flush done event to reconfigure capture queue");
       break;
     }
 
