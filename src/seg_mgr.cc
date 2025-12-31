@@ -68,7 +68,7 @@ void SegmentManager::manageSegmentCache() {
     std::for_each(segments_.begin(), begin, [](auto &segment) { segment.second.reset(); });
     std::for_each(end, segments_.end(), [](auto &segment) { segment.second.reset(); });
 
-    if (merged && onSegmentMergedCallback_) {
+    if (merged && onSegmentMergedCallback_ && !exit_) {
       onSegmentMergedCallback_();  // Notify listener that segments have been merged
     }
   }
@@ -94,6 +94,8 @@ bool SegmentManager::mergeSegments(const SegmentMap::iterator &begin, const Segm
   std::string segments_str = join(segments_to_merge, ", ");
   rDebug("merging segments: %s", segments_str.c_str());
   for (int n : segments_to_merge) {
+    if (exit_) return false;
+
     const auto &events = segments_.at(n)->log->events;
     if (events.empty()) continue;
 
@@ -116,6 +118,8 @@ bool SegmentManager::mergeSegments(const SegmentMap::iterator &begin, const Segm
 void SegmentManager::loadSegmentsInRange(SegmentMap::iterator begin, SegmentMap::iterator cur, SegmentMap::iterator end) {
   auto tryLoadSegment = [this](auto first, auto last) {
     for (auto it = first; it != last; ++it) {
+      if (exit_) return true;
+
       auto &segment_ptr = it->second;
       if (!segment_ptr) {
         segment_ptr = std::make_shared<Segment>(
