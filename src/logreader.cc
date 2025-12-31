@@ -13,17 +13,23 @@ const std::string ZST_MAGIC = "\x28\xB5\x2F\xFD";
 
 bool LogReader::load(const std::string& url, bool low_memory, std::atomic<bool>* abort, bool local_cache, int chunk_size, int retries) {
   std::string data = FileReader(local_cache, chunk_size, retries).read(url, abort);
-  if (!data.empty()) {
-    if (url.find(".bz2") != std::string::npos || util::starts_with(data, BZ2_MAGIC)) {
-      data = decompressBZ2(data, abort);
-    } else if (url.find(".zst") != std::string::npos || util::starts_with(data, ZST_MAGIC)) {
-      data = decompressZST(data, abort);
-    }
+  if (data.empty()) return false;
+
+  // Decompress based on file extension or magic bytes
+  if (url.find(".bz2") != std::string::npos || util::starts_with(data, BZ2_MAGIC)) {
+    data = decompressBZ2(data, abort);
+  } else if (url.find(".zst") != std::string::npos || util::starts_with(data, ZST_MAGIC)) {
+    data = decompressZST(data, abort);
   }
 
-  bool success = !data.empty() && load(data.data(), data.size(), low_memory, abort);
-  if (filters_.empty() || !low_memory)
+  if (data.empty()) return false;
+
+  bool success = load(data.data(), data.size(), low_memory, abort);
+
+  // Keep raw data only if we don't use low_memory (filtering uses internal buffer instead)
+  if (filters_.empty() || !low_memory) {
     raw_log_data_ = std::move(data);
+  }
   return success;
 }
 
@@ -48,6 +54,7 @@ bool LogReader::load(const char *data, size_t size, bool low_memory, std::atomic
           continue;
 
         if (low_memory) {
+          // In low memory mode, we copy only filtered events into a separate buffer
           size_t bytes = event_data.size() * sizeof(capnp::word);
           void* buf = buffer_.allocate(bytes);
           memcpy(buf, event_data.begin(), bytes);
