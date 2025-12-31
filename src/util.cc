@@ -24,12 +24,12 @@ void logMessage(ReplyMsgType type, const char *fmt, ...) {
   static std::mutex lock;
   std::lock_guard lk(lock);
 
-  char *msg_buf = nullptr;
+  char msg_buf[1024];
   va_list args;
   va_start(args, fmt);
-  int ret = vasprintf(&msg_buf, fmt, args);
+  int ret = vsnprintf(msg_buf, sizeof(msg_buf), fmt, args);
   va_end(args);
-  if (ret <= 0 || !msg_buf) return;
+  if (ret <= 0) return;
 
   if (message_handler) {
     message_handler(type, msg_buf);
@@ -44,8 +44,6 @@ void logMessage(ReplyMsgType type, const char *fmt, ...) {
       std::cout << msg_buf << std::endl;
     }
   }
-
-  free(msg_buf);
 }
 
 void precise_nano_sleep(int64_t nanoseconds, std::atomic<bool> &interrupt_requested) {
