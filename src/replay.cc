@@ -14,9 +14,8 @@ void notifyEvent(Callback &callback, Args &&...args) {
   if (callback) callback(std::forward<Args>(args)...);
 }
 
-Replay::Replay(const ReplayConfig &cfg) : sm_(nullptr), flags_(cfg.flags) {
+Replay::Replay(const ReplayConfig& cfg) : flags_(cfg.flags), msg_ctx_(Context::create()) {
   std::signal(SIGUSR1, interrupt_sleep_handler);
-  msg_ctx_ = Context::create();
 
   auto block = cfg.block;
   if (!(flags_ & REPLAY_FLAG_ALL_SERVICES)) {
@@ -222,18 +221,12 @@ void Replay::startStream(const std::shared_ptr<Segment> segment) {
 void Replay::publishMessage(const Event *e) {
   if (event_filter_ && event_filter_(e)) return;
 
-  if (!sm_) {
-    auto bytes = e->data.asBytes();
-    int ret = sockets_[e->which]->send((char*)bytes.begin(), bytes.size());
-    if (ret == -1) {
-      rWarning("stop publishing %s due to multiple publishers error", sockets_[e->which]);
-      delete sockets_[e->which];
-      sockets_[e->which] = nullptr;
-    }
-  } else {
-    // capnp::FlatArrayMessageReader reader(e->data);
-    // auto event = reader.getRoot<cereal::Event>();
-    // sm_->update_msgs(nanos_since_boot(), {{sockets_[e->which], event}});
+  auto bytes = e->data.asBytes();
+  int ret = sockets_[e->which]->send((char*)bytes.begin(), bytes.size());
+  if (ret == -1) {
+    rWarning("stop publishing %s due to multiple publishers error", sockets_[e->which]);
+    delete sockets_[e->which];
+    sockets_[e->which] = nullptr;
   }
 }
 

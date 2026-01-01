@@ -109,7 +109,6 @@ private:
   cereal::Event::Which cur_which_ = cereal::Event::Which::INIT_DATA;
   double min_seconds_ = 0;
   double max_seconds_ = 0;
-  SubMaster *sm_ = nullptr;
   Context *msg_ctx_ = nullptr;
   std::vector<PubSocket*> sockets_;
   std::unique_ptr<CameraServer> camera_server_;
