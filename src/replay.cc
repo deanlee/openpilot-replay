@@ -17,14 +17,9 @@ void notifyEvent(Callback &callback, Args &&...args) {
 Replay::Replay(const ReplayConfig& cfg) : flags_(cfg.flags), msg_ctx_(Context::create()) {
   std::signal(SIGUSR1, interrupt_sleep_handler);
 
-  auto block = cfg.block;
-  if (!(flags_ & REPLAY_FLAG_ALL_SERVICES)) {
-    block.insert(block.end(), {"bookmarkButton", "uiDebug", "userBookmark"});
-  }
+  setupServices(cfg.allow, cfg.block);
 
-  setupServices(cfg.allow, block);
-
-  bool has_filters = !cfg.allow.empty() || !block.empty();
+  bool has_filters = !cfg.allow.empty() || !cfg.block.empty();
   setupSegmentManager(cfg, has_filters);
 }
 

@@ -125,6 +125,10 @@ int main(int argc, char *argv[]) {
     op_prefix = std::make_unique<OpenpilotPrefix>(config.prefix);
   }
 
+  // Block UI-only services by default (use --all to include them)
+  if (!(config.flags & REPLAY_FLAG_ALL_SERVICES)) {
+    config.block.insert(config.block.end(), {"bookmarkButton", "uiDebug", "userBookmark"});
+  }
   Replay replay(config);
   if (config.cache_segments > 0) {
     replay.setSegmentCacheLimit(config.cache_segments);
