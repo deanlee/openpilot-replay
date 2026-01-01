@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include<vector>
+#include<set>
 
 
 #define DEMO_ROUTE "a2a0ccea32023010|2023-07-27--13-01-19"
@@ -21,8 +21,8 @@ enum REPLAY_FLAGS {
 
 struct ReplayConfig {
   std::string route;
-  std::vector<std::string> allow;
-  std::vector<std::string> block;
+  std::set<std::string> allow;
+  std::set<std::string> block;
   std::string data_dir;
   std::string prefix;
   uint32_t flags = REPLAY_FLAG_NONE;

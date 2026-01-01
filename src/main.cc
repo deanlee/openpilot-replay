@@ -73,11 +73,16 @@ bool parseArgs(int argc, char *argv[], ReplayConfig &config) {
     return false;
   }
 
+  auto split_to_set = [](const std::string& input) -> std::set<std::string> {
+    std::vector<std::string> v = split(input, ',');
+    return {std::make_move_iterator(v.begin()), std::make_move_iterator(v.end())};
+  };
+
   int opt, option_index = 0;
   while ((opt = getopt_long(argc, argv, "a:b:c:s:x:d:p:h", cli_options, &option_index)) != -1) {
     switch (opt) {
-      case 'a': config.allow = split(optarg, ','); break;
-      case 'b': config.block = split(optarg, ','); break;
+      case 'a': config.allow = split_to_set(optarg); break;
+      case 'b': config.block = split_to_set(optarg); break;
       case 'c': config.cache_segments = std::atoi(optarg); break;
       case 's': config.start_seconds = std::atoi(optarg); break;
       case 'x': config.playback_speed = std::atof(optarg); break;
@@ -127,8 +132,9 @@ int main(int argc, char *argv[]) {
 
   // Block UI-only services by default (use --all to include them)
   if (!(config.flags & REPLAY_FLAG_ALL_SERVICES)) {
-    config.block.insert(config.block.end(), {"bookmarkButton", "uiDebug", "userBookmark"});
+    config.block.insert({"bookmarkButton", "uiDebug", "userBookmark"});
   }
+
   Replay replay(config);
   if (config.cache_segments > 0) {
     replay.setSegmentCacheLimit(config.cache_segments);

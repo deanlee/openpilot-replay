@@ -51,7 +51,7 @@ public:
   std::function<void(std::shared_ptr<LogReader>)> onQLogLoaded = nullptr;
 
 private:
-  void setupServices(const std::vector<std::string> &allow, const std::vector<std::string> &block);
+  void setupServices(const ReplayConfig& cfg);
   void setupSegmentManager(const ReplayConfig &config, bool has_filters);
   void startStream(const std::shared_ptr<Segment> segment);
   void streamThread();

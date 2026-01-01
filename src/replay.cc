@@ -17,25 +17,21 @@ void notifyEvent(Callback &callback, Args &&...args) {
 Replay::Replay(const ReplayConfig& cfg) : flags_(cfg.flags), msg_ctx_(Context::create()) {
   std::signal(SIGUSR1, interrupt_sleep_handler);
 
-  setupServices(cfg.allow, cfg.block);
+  setupServices(cfg);
 
   bool has_filters = !cfg.allow.empty() || !cfg.block.empty();
   setupSegmentManager(cfg, has_filters);
 }
 
-void Replay::setupServices(const std::vector<std::string> &allow, const std::vector<std::string> &block) {
+void Replay::setupServices(const ReplayConfig& cfg) {
   auto event_schema = capnp::Schema::from<cereal::Event>().asStruct();
   sockets_.assign(event_schema.getUnionFields().size(), nullptr);
 
   std::vector<const char *> active_services;
   active_services.reserve(services.size());
 
-  auto contains = [](const auto& vec, const auto& val) {
-    return std::find(vec.begin(), vec.end(), val) != vec.end();
-  };
-
   for (const auto &[name, serv] : services) {
-   if ((allow.empty() || contains(allow, name)) && !contains(block, name)) {
+   if ((cfg.allow.empty() || cfg.allow.count(name)) && !cfg.block.count(name)) {
       uint16_t which = event_schema.getFieldByName(name).getProto().getDiscriminantValue();
       sockets_[which] = PubSocket::create(msg_ctx_, name, true, serv.queue_size);
       active_services.push_back(name.c_str());
