@@ -57,6 +57,7 @@ void Timeline::buildTimeline(const Route &route, uint64_t route_start_ts, bool l
   filters[cereal::Event::Which::CONTROLS_STATE] = true;
   filters[cereal::Event::Which::SELFDRIVE_STATE] = true;
   filters[cereal::Event::Which::USER_BOOKMARK] = true;
+  filters[cereal::Event::Which::THUMBNAIL] = true;
 
   for (const auto &segment : route.segments()) {
     if (should_exit_) break;
