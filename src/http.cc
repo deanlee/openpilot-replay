@@ -24,12 +24,45 @@ struct CURLGlobalInitializer {
 
 static CURLGlobalInitializer curl_initializer;
 
+// Thread-safe Global Progress Tracker
+struct DownloadStats {
+  std::atomic<uint64_t> total_bytes{0};
+  std::atomic<uint64_t> downloaded_bytes{0};
+  std::atomic<double> prev_tm{0};
+  DownloadProgressHandler handler = nullptr;
+
+  void add(uint64_t size) { total_bytes += size; }
+
+  void update(size_t delta, bool success = true, bool final_call = false) {
+    uint64_t current = (downloaded_bytes += delta);
+    uint64_t total = total_bytes.load(std::memory_order_relaxed);
+
+    double now = millis_since_boot();
+    double prev = prev_tm.load(std::memory_order_relaxed);
+
+    // Throttle UI calls to 500ms
+    if (final_call || (now - prev > 500)) {
+      if (!final_call) {
+        if (!prev_tm.compare_exchange_strong(prev, now)) return;
+      }
+      if (handler) handler(current, total, success);
+    }
+  }
+
+  void remove(uint64_t file_total, uint64_t file_downloaded) {
+    total_bytes -= file_total;
+    downloaded_bytes -= file_downloaded;
+  }
+};
+
+static DownloadStats g_stats;
+
 template <class T>
 struct MultiPartWriter {
   T* buf;
-  size_t* total_written;
   size_t offset;
   size_t end;
+  size_t written = 0;
 
   size_t write(char* data, size_t size, size_t count) {
     size_t bytes = size * count;
@@ -43,7 +76,8 @@ struct MultiPartWriter {
     }
 
     offset += bytes;
-    *total_written += bytes;
+    written += bytes;
+    g_stats.update(bytes);
     return bytes;
   }
 };
@@ -56,48 +90,10 @@ size_t write_cb(char* data, size_t size, size_t count, void* userp) {
 
 size_t dumy_write_cb(char* data, size_t size, size_t count, void* userp) { return size * count; }
 
-struct DownloadStats {
-  void installDownloadProgressHandler(DownloadProgressHandler handler) {
-    std::lock_guard lk(lock);
-    download_progress_handler = handler;
-  }
-
-  void add(const std::string& url, uint64_t total_bytes) {
-    std::lock_guard lk(lock);
-    items[url] = {0, total_bytes};
-  }
-
-  void remove(const std::string& url) {
-    std::lock_guard lk(lock);
-    items.erase(url);
-  }
-
-  void update(const std::string& url, uint64_t downloaded, bool success = true) {
-    std::lock_guard lk(lock);
-    items[url].first = downloaded;
-
-    auto stat = std::accumulate(items.begin(), items.end(), std::pair<int, int>{}, [=](auto& a, auto& b) {
-      return std::pair{a.first + b.second.first, a.second + b.second.second};
-    });
-    double tm = millis_since_boot();
-    if (download_progress_handler && ((tm - prev_tm) > 500 || !success || stat.first >= stat.second)) {
-      download_progress_handler(stat.first, stat.second, success);
-      prev_tm = tm;
-    }
-  }
-
-  std::mutex lock;
-  std::map<std::string, std::pair<uint64_t, uint64_t>> items;
-  double prev_tm = 0;
-  DownloadProgressHandler download_progress_handler = nullptr;
-};
-
-static DownloadStats download_stats;
-
 }  // namespace
 
 void installDownloadProgressHandler(DownloadProgressHandler handler) {
-  download_stats.installDownloadProgressHandler(handler);
+  g_stats.handler = handler;
 }
 
 std::string formattedDataSize(size_t size) {
@@ -145,7 +141,7 @@ std::string getUrlWithoutQuery(const std::string& url) {
 
 template <class T>
 bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t content_length, std::atomic<bool>* abort) {
-  download_stats.add(url, content_length);
+  g_stats.add(content_length);
 
   int parts = 1;
   if (chunk_size > 0 && content_length > 10 * 1024 * 1024) {
@@ -154,16 +150,15 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
   }
 
   CURLM* cm = curl_multi_init();
-  size_t written = 0;
   std::map<CURL*, MultiPartWriter<T>> writers;
   const int part_size = content_length / parts;
   for (int i = 0; i < parts; ++i) {
     CURL* eh = curl_easy_init();
     writers[eh] = {
         .buf = &buf,
-        .total_written = &written,
         .offset = (size_t)(i * part_size),
         .end = i == parts - 1 ? content_length : (i + 1) * part_size,
+        .written = 0,
     };
     curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, write_cb<T>);
     curl_easy_setopt(eh, CURLOPT_WRITEDATA, (void*)(&writers[eh]));
@@ -176,33 +171,26 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
     curl_multi_add_handle(cm, eh);
   }
 
+  // Event loop
   int still_running = 1;
-  size_t prev_written = 0;
   while (still_running > 0 && !(abort && *abort)) {
-    CURLMcode mc = curl_multi_perform(cm, &still_running);
-    if (mc != CURLM_OK) {
-      break;
-    }
+    curl_multi_perform(cm, &still_running);
     if (still_running > 0) {
-      curl_multi_wait(cm, nullptr, 0, 1000, nullptr);
-    }
-
-    if (((written - prev_written) / (double)content_length) >= 0.01) {
-      download_stats.update(url, written);
-      prev_written = written;
+      curl_multi_wait(cm, nullptr, 0, 500, nullptr);
     }
   }
 
+  // Verification
+  int success_count = 0;
   CURLMsg* msg;
   int msgs_left = -1;
-  int complete = 0;
-  while ((msg = curl_multi_info_read(cm, &msgs_left)) && !(abort && *abort)) {
+  while ((msg = curl_multi_info_read(cm, &msgs_left))) {
     if (msg->msg == CURLMSG_DONE) {
       if (msg->data.result == CURLE_OK) {
         long res_status = 0;
         curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
         if (res_status == 206) {
-          complete++;
+          success_count++;
         } else {
           rWarning("Download failed: http error code: %d", res_status);
         }
@@ -212,15 +200,17 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
     }
   }
 
-  bool success = complete == parts;
-  download_stats.update(url, written, success);
-  download_stats.remove(url);
-
   for (const auto& [e, w] : writers) {
     curl_multi_remove_handle(cm, e);
     curl_easy_cleanup(e);
   }
   curl_multi_cleanup(cm);
+
+  uint64_t total_file_written = 0;
+  for (const auto& [_, w] : writers) total_file_written += w.written;
+  bool success = (success_count == parts) && !(abort && *abort);
+  g_stats.update(0, success, true); // Force final UI update
+  if (!success) g_stats.remove(content_length, total_file_written);
 
   return success;
 }
