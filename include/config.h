@@ -6,6 +6,9 @@
 #define DEMO_ROUTE "a2a0ccea32023010|2023-07-27--13-01-19"
 
 constexpr int MIN_SEGMENTS_CACHE = 5;
+constexpr size_t DEFAULT_CHUNK_SIZE = 20 * 1024 * 1024;
+constexpr int MAX_DOWNLOAD_PARTS = 4;
+constexpr int MAX_RETRIES = 3;
 
 enum CameraType {
   RoadCam = 0,

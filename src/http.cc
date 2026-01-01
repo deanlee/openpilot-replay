@@ -10,6 +10,7 @@
 #include <numeric>
 #include <utility>
 
+#include "config.h"
 #include "common/timing.h"
 #include "common/util.h"
 #include "util.h"
@@ -149,7 +150,7 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
   int parts = 1;
   if (chunk_size > 0 && content_length > 10 * 1024 * 1024) {
     parts = std::nearbyint(content_length / (float)chunk_size);
-    parts = std::clamp(parts, 1, 5);
+    parts = std::clamp(parts, 1, MAX_DOWNLOAD_PARTS);
   }
 
   CURLM* cm = curl_multi_init();

@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "cereal/gen/cpp/log.capnp.h"
+#include "config.h"
 #include "util.h"
 
 class Event {
@@ -25,7 +26,7 @@ class LogReader {
 public:
   LogReader(const std::vector<bool> &filters = {}) { filters_ = filters; }
   bool load(const std::string &url, bool low_memory = false, std::atomic<bool> *abort = nullptr,
-            bool local_cache = false, int chunk_size = -1, int retries = 0);
+            bool local_cache = false, int chunk_size = DEFAULT_CHUNK_SIZE, int retries = MAX_RETRIES);
   bool load(const char *data, size_t size, bool low_memory, std::atomic<bool> *abort = nullptr);
   std::vector<Event> events;
 
