@@ -35,10 +35,12 @@ void Replay::setupServices(const std::vector<std::string> &allow, const std::vec
   std::vector<const char *> active_services;
   active_services.reserve(services.size());
 
+  auto contains = [](const auto& vec, const auto& val) {
+    return std::find(vec.begin(), vec.end(), val) != vec.end();
+  };
+
   for (const auto &[name, serv] : services) {
-    bool is_blocked = std::find(block.begin(), block.end(), name) != block.end();
-    bool is_allowed = allow.empty() || std::find(allow.begin(), allow.end(), name) != allow.end();
-    if (is_allowed && !is_blocked) {
+   if ((allow.empty() || contains(allow, name)) && !contains(block, name)) {
       uint16_t which = event_schema.getFieldByName(name).getProto().getDiscriminantValue();
       sockets_[which] = PubSocket::create(msg_ctx_, name, true, serv.queue_size);
       active_services.push_back(name.c_str());
