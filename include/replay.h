@@ -25,7 +25,7 @@ public:
   void seekTo(double seconds, bool relative);
   inline bool isPaused() const { return user_paused_; }
   inline int segmentCacheLimit() const { return seg_mgr_->segment_cache_limit_; }
-  inline void setSegmentCacheLimit(int n) { seg_mgr_->segment_cache_limit_ = std::max(MIN_SEGMENTS_CACHE, n); }
+  inline void setSegmentCacheLimit(int n) { seg_mgr_->setSegmentCacheLimit(n); }
   inline bool hasFlag(REPLAY_FLAGS flag) const { return flags_ & flag; }
   void setLoop(bool loop) { loop ? flags_ &= ~REPLAY_FLAG_NO_LOOP : flags_ |= REPLAY_FLAG_NO_LOOP; }
   bool loop() const { return !(flags_ & REPLAY_FLAG_NO_LOOP); }
@@ -52,7 +52,7 @@ public:
 
 private:
   void setupServices(const ReplayConfig& cfg);
-  void setupSegmentManager(const ReplayConfig &config, bool has_filters);
+  void setupSegmentManager(const ReplayConfig &cfg);
   void startStream(const std::shared_ptr<Segment> segment);
   void streamThread();
   void handleSegmentMerge();

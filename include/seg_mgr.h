@@ -9,8 +9,6 @@
 #include "config.h"
 #include "route.h"
 
-constexpr int MIN_SEGMENTS_CACHE = 5;
-
 using SegmentMap = std::map<int, std::shared_ptr<Segment>>;
 
 class SegmentManager {
@@ -26,6 +24,7 @@ public:
 
   bool load();
   void setCurrentSegment(int seg_num);
+  void setSegmentCacheLimit(int n) { segment_cache_limit_ = std::max(MIN_SEGMENTS_CACHE, n); }
   void setCallback(const std::function<void()> &callback) { onSegmentMergedCallback_ = callback; }
   void setFilters(const std::vector<bool> &filters) { filters_ = filters; }
   const std::shared_ptr<EventData> getEventData() const { return std::atomic_load(&event_data_); }

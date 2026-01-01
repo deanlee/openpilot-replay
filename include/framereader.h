@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "msgq/visionipc/visionbuf.h"
+#include "config.h"
 #include "filereader.h"
 #include "util.h"
 

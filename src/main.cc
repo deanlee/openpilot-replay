@@ -135,13 +135,8 @@ int main(int argc, char *argv[]) {
     config.block.insert({"bookmarkButton", "uiDebug", "userBookmark"});
   }
 
+  config.playback_speed = (config.playback_speed <= 0) ? 1.0f : config.playback_speed;
   Replay replay(config);
-  if (config.cache_segments > 0) {
-    replay.setSegmentCacheLimit(config.cache_segments);
-  }
-  if (config.playback_speed > 0) {
-    replay.setSpeed(std::clamp(config.playback_speed, ConsoleUI::speed_array.front(), ConsoleUI::speed_array.back()));
-  }
   if (!replay.load()) {
     return 1;
   }

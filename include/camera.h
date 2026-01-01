@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "msgq/visionipc/visionipc_server.h"
+#include "config.h"
 #include "framereader.h"
 #include "logreader.h"
 

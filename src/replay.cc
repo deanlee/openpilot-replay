@@ -14,13 +14,12 @@ void notifyEvent(Callback &callback, Args &&...args) {
   if (callback) callback(std::forward<Args>(args)...);
 }
 
-Replay::Replay(const ReplayConfig& cfg) : flags_(cfg.flags), msg_ctx_(Context::create()) {
+Replay::Replay(const ReplayConfig& cfg)
+    : flags_(cfg.flags), speed_(cfg.playback_speed), msg_ctx_(Context::create()) {
   std::signal(SIGUSR1, interrupt_sleep_handler);
 
   setupServices(cfg);
-
-  bool has_filters = !cfg.allow.empty() || !cfg.block.empty();
-  setupSegmentManager(cfg, has_filters);
+  setupSegmentManager(cfg);
 }
 
 void Replay::setupServices(const ReplayConfig& cfg) {
@@ -42,11 +41,11 @@ void Replay::setupServices(const ReplayConfig& cfg) {
   rInfo("active services: %s", services_str.c_str());
 }
 
-void Replay::setupSegmentManager(const ReplayConfig &config, bool has_filters) {
-  seg_mgr_ = std::make_unique<SegmentManager>(config);
+void Replay::setupSegmentManager(const ReplayConfig &cfg) {
+  seg_mgr_ = std::make_unique<SegmentManager>(cfg);
   seg_mgr_->setCallback([this]() { handleSegmentMerge(); });
 
-  if (has_filters) {
+  if (!cfg.allow.empty() || !cfg.block.empty()) {
     std::vector<bool> filters(sockets_.size(), false);
     for (size_t i = 0; i < sockets_.size(); ++i) {
       filters[i] = (i == cereal::Event::Which::INIT_DATA || i == cereal::Event::Which::CAR_PARAMS || sockets_[i]);

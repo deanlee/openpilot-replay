@@ -1,10 +1,20 @@
 #pragma once
 
+#include <set>
 #include <string>
-#include<set>
-
 
 #define DEMO_ROUTE "a2a0ccea32023010|2023-07-27--13-01-19"
+
+constexpr int MIN_SEGMENTS_CACHE = 5;
+
+enum CameraType {
+  RoadCam = 0,
+  DriverCam,
+  WideRoadCam
+};
+
+const CameraType ALL_CAMERAS[] = {RoadCam, DriverCam, WideRoadCam};
+const int MAX_CAMERAS = std::size(ALL_CAMERAS);
 
 enum REPLAY_FLAGS {
   REPLAY_FLAG_NONE = 0x0000,
@@ -28,6 +38,6 @@ struct ReplayConfig {
   uint32_t flags = REPLAY_FLAG_NONE;
   bool auto_source = false;
   int start_seconds = 0;
-  int cache_segments = -1;
-  float playback_speed = -1;
+  int cache_segments = MIN_SEGMENTS_CACHE;
+  float playback_speed = 1.0f;
 };

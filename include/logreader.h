@@ -6,9 +6,6 @@
 #include "cereal/gen/cpp/log.capnp.h"
 #include "util.h"
 
-const CameraType ALL_CAMERAS[] = {RoadCam, DriverCam, WideRoadCam};
-const int MAX_CAMERAS = std::size(ALL_CAMERAS);
-
 class Event {
 public:
   Event(cereal::Event::Which which, uint64_t mono_time, const kj::ArrayPtr<const capnp::word> &data, int eidx_segnum = -1)

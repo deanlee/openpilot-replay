@@ -9,12 +9,6 @@
 #include <vector>
 #include "cereal/messaging/messaging.h"
 
-enum CameraType {
-  RoadCam = 0,
-  DriverCam,
-  WideRoadCam
-};
-
 enum class ReplyMsgType {
   Info,
   Debug,
