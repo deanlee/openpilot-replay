@@ -63,6 +63,7 @@ struct MultiPartWriter {
   size_t offset;
   size_t end;
   size_t written = 0;
+  std::string range_header;
 
   size_t write(char* data, size_t size, size_t count) {
     size_t bytes = size * count;
@@ -143,30 +144,32 @@ template <class T>
 bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t content_length, std::atomic<bool>* abort) {
   g_stats.add(content_length);
 
-  int parts = 1;
-  if (chunk_size > 0 && content_length > 10 * 1024 * 1024) {
-    parts = std::nearbyint(content_length / (float)chunk_size);
-    parts = std::clamp(parts, 1, MAX_DOWNLOAD_PARTS);
-  }
+  size_t threshold = (chunk_size > 0) ? chunk_size : DEFAULT_CHUNK_SIZE;
+  int parts = std::clamp((int)((content_length + threshold - 1) / threshold), 1, MAX_DOWNLOAD_PARTS);
+  const size_t part_size = content_length / parts;
 
   CURLM* cm = curl_multi_init();
-  std::map<CURL*, MultiPartWriter<T>> writers;
-  const int part_size = content_length / parts;
+  std::vector<CURL*> handles;
+  std::vector<MultiPartWriter<T>> writers;
+  handles.reserve(parts);
+  writers.reserve(parts); // CRITICAL: prevent pointer invalidation
+
   for (int i = 0; i < parts; ++i) {
+    size_t start = i * part_size;
+    size_t end = (i == parts - 1) ? content_length : (i + 1) * part_size;
+    std::string range_str = util::string_format("%zu-%zu", start, end - 1);
+    writers.push_back({&buf, start, end, 0, range_str});
+
     CURL* eh = curl_easy_init();
-    writers[eh] = {
-        .buf = &buf,
-        .offset = (size_t)(i * part_size),
-        .end = i == parts - 1 ? content_length : (i + 1) * part_size,
-        .written = 0,
-    };
-    curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, write_cb<T>);
-    curl_easy_setopt(eh, CURLOPT_WRITEDATA, (void*)(&writers[eh]));
+    handles.push_back(eh);
+
     curl_easy_setopt(eh, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(eh, CURLOPT_RANGE, util::string_format("%d-%d", writers[eh].offset, writers[eh].end - 1).c_str());
-    curl_easy_setopt(eh, CURLOPT_HTTPGET, 1);
-    curl_easy_setopt(eh, CURLOPT_NOSIGNAL, 1);
-    curl_easy_setopt(eh, CURLOPT_FOLLOWLOCATION, 1);
+    curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, write_cb<T>);
+    curl_easy_setopt(eh, CURLOPT_WRITEDATA, &writers.back());
+    curl_easy_setopt(eh, CURLOPT_RANGE, writers.back().range_header.c_str());
+    curl_easy_setopt(eh, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(eh, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(eh, CURLOPT_FOLLOWLOCATION, 1L);
 
     curl_multi_add_handle(cm, eh);
   }
@@ -174,6 +177,7 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
   // Event loop
   int still_running = 1;
   while (still_running > 0 && !(abort && *abort)) {
+    if (curl_multi_perform(cm, &still_running) != CURLM_OK) break;
     curl_multi_perform(cm, &still_running);
     if (still_running > 0) {
       curl_multi_wait(cm, nullptr, 0, 500, nullptr);
@@ -182,35 +186,32 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
 
   // Verification
   int success_count = 0;
-  CURLMsg* msg;
   int msgs_left = -1;
+  CURLMsg* msg;
   while ((msg = curl_multi_info_read(cm, &msgs_left))) {
-    if (msg->msg == CURLMSG_DONE) {
-      if (msg->data.result == CURLE_OK) {
-        long res_status = 0;
-        curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &res_status);
-        if (res_status == 206) {
-          success_count++;
-        } else {
-          rWarning("Download failed: http error code: %d", res_status);
-        }
-      } else {
-        rWarning("Download failed: connection failure: %d", msg->data.result);
-      }
+    if (msg->msg != CURLMSG_DONE) continue;
+
+    long code = 0;
+    curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &code);
+
+    if (msg->data.result == CURLE_OK && (code == 200 || code == 206)) {
+      success_count++;
+    } else {
+      rWarning("Download failed: %s (HTTP %ld)", curl_easy_strerror(msg->data.result), code);
     }
   }
 
-  for (const auto& [e, w] : writers) {
-    curl_multi_remove_handle(cm, e);
-    curl_easy_cleanup(e);
+  for (CURL* eh : handles) {
+    curl_multi_remove_handle(cm, eh);
+    curl_easy_cleanup(eh);
   }
   curl_multi_cleanup(cm);
 
-  uint64_t total_file_written = 0;
-  for (const auto& [_, w] : writers) total_file_written += w.written;
+  uint64_t total_written = std::accumulate(writers.begin(), writers.end(), 0ULL,
+                           [](uint64_t sum, const auto& w) { return sum + w.written; });
   bool success = (success_count == parts) && !(abort && *abort);
   g_stats.update(0, success, true); // Force final UI update
-  if (!success) g_stats.remove(content_length, total_file_written);
+  g_stats.remove(content_length, total_written);
 
   return success;
 }
