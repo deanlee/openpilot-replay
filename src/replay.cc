@@ -50,7 +50,7 @@ void Replay::setupServices(const std::vector<std::string> &allow, const std::vec
 }
 
 void Replay::setupSegmentManager(const ReplayConfig &config, bool has_filters) {
-  seg_mgr_ = std::make_unique<SegmentManager>(config.route, config.flags, config.data_dir, config.auto_source);
+  seg_mgr_ = std::make_unique<SegmentManager>(config);
   seg_mgr_->setCallback([this]() { handleSegmentMerge(); });
 
   if (has_filters) {

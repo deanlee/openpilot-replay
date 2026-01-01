@@ -2,6 +2,11 @@
 
 #include <algorithm>
 
+SegmentManager::SegmentManager(const ReplayConfig& cfg)
+    : flags_(cfg.flags), route_(cfg.route, cfg.data_dir, cfg.auto_source) {
+  event_data_ = std::make_shared<EventData>();
+}
+
 SegmentManager::~SegmentManager() {
   {
     std::unique_lock lock(mutex_);
