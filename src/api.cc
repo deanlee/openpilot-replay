@@ -13,7 +13,7 @@
 
 #include "common/params.h"
 #include "common/version.h"
-#include "hardware/hw.h"
+#include "hardware.h"
 
 namespace CommaApi2 {
 

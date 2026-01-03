@@ -3,7 +3,7 @@
 #include <fstream>
 
 #include "common/util.h"
-#include "hardware/hw.h"
+#include "hardware.h"
 #include "http.h"
 #include "util.h"
 

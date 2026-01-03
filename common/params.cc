@@ -11,7 +11,7 @@
 #include "common/params_keys.h"
 #include "common/queue.h"
 #include "common/util.h"
-#include "hardware/hw.h"
+#include "hardware.h"
 
 namespace {
 
