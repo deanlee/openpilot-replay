@@ -2,16 +2,17 @@
 
 #include <string>
 
-#include "hardware/base.h"
 #include "common/util.h"
 
+namespace Hardware {
+static inline bool PC() {
 #if __TICI__
-#include "hardware/tici/hardware.h"
-#define Hardware HardwareTici
+  return false;
 #else
-#include "hardware/pc/hardware.h"
-#define Hardware HardwarePC
+  return true;
 #endif
+}
+}  // namespace Hardware
 
 namespace Path {
   inline std::string openpilot_prefix() {
