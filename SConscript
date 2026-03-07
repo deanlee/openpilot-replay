@@ -12,7 +12,10 @@ if is_darwin:
 for f in exclude:
     src.remove(File(f'src/{f}'))
 
-libs = [common, messaging, cereal, visionipc, 'ssl', 'crypto', 'pthread', 'zmq',
+# Use explicit .so names to force dynamic linking — avoids picking up system
+# libssl.a/libcrypto.a which would conflict with libcurl's system libssl.so.
+ssl_libs = [':libssl.so', ':libcrypto.so'] if not is_darwin else ['ssl', 'crypto']
+libs = [common, messaging, cereal, visionipc] + ssl_libs + ['pthread', 'zmq',
         'avutil', 'avcodec', 'avformat', 'swscale', 'bz2', 'zstd', 'curl', 'ncurses'] + opencl
 
 replay_lib = env.Library("replay", src, LIBS=libs, FRAMEWORKS=frameworks)
