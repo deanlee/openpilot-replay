@@ -2,14 +2,12 @@
 #include "api.h"
 
 #include <curl/curl.h>
-#include <openssl/pem.h>
-#include <openssl/rsa.h>
 #include <openssl/evp.h>
-#include <openssl/sha.h>
+#include <openssl/pem.h>
 
-#include <cassert>
 #include <chrono>
 #include <iostream>
+#include <memory>
 
 #include "common/params.h"
 #include "common/version.h"
@@ -17,8 +15,7 @@
 
 namespace CommaApi2 {
 
-// Base64 URL-safe character set (uses '-' and '_' instead of '+' and '/')
-static const std::string base64url_chars =
+static constexpr char base64url_chars[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789-_";
@@ -37,7 +34,6 @@ std::string base64url_encode(const std::string &in) {
   if (valb > -6) {
     out.push_back(base64url_chars[((val << 8) >> (valb + 8)) & 0x3F]);
   }
-
   return out;
 }
 
@@ -49,7 +45,7 @@ EVP_PKEY *get_rsa_private_key() {
       std::cerr << "No RSA private key found, please run manager.py or registration.py" << std::endl;
       return nullptr;
     }
-    rsa_private.reset(PEM_read_PrivateKey(fp, NULL, NULL, NULL));
+    rsa_private.reset(PEM_read_PrivateKey(fp, nullptr, nullptr, nullptr));
     fclose(fp);
   }
   return rsa_private.get();
@@ -59,28 +55,26 @@ std::string rsa_sign(const std::string &data) {
   EVP_PKEY *private_key = get_rsa_private_key();
   if (!private_key) return {};
 
-  EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-  assert(mdctx != nullptr);
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> mdctx(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+  if (!mdctx) return {};
 
-  std::vector<uint8_t> sig(EVP_PKEY_size(private_key));
-  uint32_t sig_len;
+  if (EVP_DigestSignInit(mdctx.get(), nullptr, EVP_sha256(), nullptr, private_key) != 1 ||
+      EVP_DigestSignUpdate(mdctx.get(), data.data(), data.size()) != 1)
+    return {};
 
-  EVP_SignInit(mdctx, EVP_sha256());
-  EVP_SignUpdate(mdctx, data.data(), data.size());
-  int ret = EVP_SignFinal(mdctx, sig.data(), &sig_len, private_key);
+  size_t sig_len = 0;
+  if (EVP_DigestSignFinal(mdctx.get(), nullptr, &sig_len) != 1) return {};
 
-  EVP_MD_CTX_free(mdctx);
-
-  assert(ret == 1);
-  assert(sig.size() == sig_len);
-  return std::string(sig.begin(), sig.begin() + sig_len);
+  std::string sig(sig_len, '\0');
+  if (EVP_DigestSignFinal(mdctx.get(), reinterpret_cast<unsigned char *>(sig.data()), &sig_len) != 1) return {};
+  sig.resize(sig_len);
+  return sig;
 }
 
 std::string create_jwt(const json &extra, int exp_time) {
-  int now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   std::string dongle_id = Params().get("DongleId");
 
-  // Create header and initial payload
   json header = {{"alg", "RS256"}};
   json payload = {
       {"identity", dongle_id},
@@ -88,22 +82,13 @@ std::string create_jwt(const json &extra, int exp_time) {
       {"nbf", now},
       {"exp", now + exp_time},
   };
-
-  // Merge extra payload (Cleaner nlohmann syntax)
   if (!extra.is_null()) {
     payload.update(extra);
   }
 
-  // JWT construction
   std::string jwt = base64url_encode(header.dump()) + '.' +
                     base64url_encode(payload.dump());
-
-  // Hash and sign
-  std::string hash(SHA256_DIGEST_LENGTH, '\0');
-  SHA256((uint8_t *)jwt.data(), jwt.size(), (uint8_t *)hash.data());
-  std::string signature = rsa_sign(hash);
-
-  return jwt + "." + base64url_encode(signature);
+  return jwt + "." + base64url_encode(rsa_sign(jwt));
 }
 
 std::string create_token(bool use_jwt, const json &payloads, int expiry) {
@@ -113,52 +98,42 @@ std::string create_token(bool use_jwt, const json &payloads, int expiry) {
 
   std::string token_json = util::read_file(util::getenv("HOME") + "/.comma/auth.json");
   try {
-    auto j = json::parse(token_json);
-    return j.value("access_token", "");
-  } catch (const json::parse_error& e) {
+    return json::parse(token_json).value("access_token", "");
+  } catch (const json::parse_error &e) {
     std::cerr << "Error parsing auth.json: " << e.what() << std::endl;
     return "";
   }
 }
 
 std::string httpGet(const std::string &url, long *response_code) {
-  CURL *curl = curl_easy_init();
-  assert(curl);
+  std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
+  if (!curl) return {};
 
   std::string readBuffer;
-  const std::string token = CommaApi2::create_token(!Hardware::PC());
+  const std::string token = create_token(!Hardware::PC());
 
-  // Set up the lambda for the write callback
-  // The '+' makes the lambda non-capturing, allowing it to be used as a C function pointer
-  auto writeCallback = +[](char *contents, size_t size, size_t nmemb, std::string *userp) ->size_t{
-    size_t totalSize = size * nmemb;
-    userp->append((char *)contents, totalSize);
-    return totalSize;
-  };
+  curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION,
+                   +[](char *data, size_t size, size_t nmemb, std::string *buf) -> size_t {
+                     buf->append(data, size * nmemb);
+                     return size * nmemb;
+                   });
+  curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &readBuffer);
+  curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
 
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-  // Handle headers
-  struct curl_slist *headers = nullptr;
-  headers = curl_slist_append(headers, "User-Agent: openpilot-" COMMA_VERSION);
+  std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(
+      curl_slist_append(nullptr, "User-Agent: openpilot-" COMMA_VERSION), curl_slist_free_all);
   if (!token.empty()) {
-    headers = curl_slist_append(headers, ("Authorization: JWT " + token).c_str());
+    headers.reset(curl_slist_append(headers.release(), ("Authorization: JWT " + token).c_str()));
   }
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
 
-  CURLcode res = curl_easy_perform(curl);
-
+  CURLcode res = curl_easy_perform(curl.get());
   if (response_code) {
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, response_code);
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, response_code);
   }
-
-  curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
 
   return res == CURLE_OK ? readBuffer : std::string{};
 }
 
-}  // namespace CommaApi
+}  // namespace CommaApi2
