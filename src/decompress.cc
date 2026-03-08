@@ -4,90 +4,86 @@
 #include <zstd.h>
 
 #include <cassert>
-#include <string>
 
 #include "util.h"
 
 std::string decompressBZ2(const std::string& in, std::atomic<bool>* abort) {
-  return decompressBZ2((std::byte*)in.data(), in.size(), abort);
-}
-
-std::string decompressBZ2(const std::byte* in, size_t in_size, std::atomic<bool>* abort) {
-  if (in_size == 0) return {};
+  if (in.empty()) return {};
 
   bz_stream strm = {};
-  int bzerror = BZ2_bzDecompressInit(&strm, 0, 0);
-  assert(bzerror == BZ_OK);
+  int err = BZ2_bzDecompressInit(&strm, 0, 0);
+  assert(err == BZ_OK);
 
-  strm.next_in = (char*)in;
-  strm.avail_in = in_size;
-  std::string out(in_size * 5, '\0');
-  do {
-    strm.next_out = (char*)(&out[strm.total_out_lo32]);
+  strm.next_in = const_cast<char*>(in.data());
+  strm.avail_in = in.size();
+  std::string out(in.size() * 5, '\0');
+
+  while (err == BZ_OK && !(abort && *abort)) {
+    strm.next_out = out.data() + strm.total_out_lo32;
     strm.avail_out = out.size() - strm.total_out_lo32;
 
-    const char* prev_write_pos = strm.next_out;
-    bzerror = BZ2_bzDecompress(&strm);
-    if (bzerror == BZ_OK && prev_write_pos == strm.next_out) {
-      // content is corrupt
-      bzerror = BZ_STREAM_END;
+    const char* prev = strm.next_out;
+    err = BZ2_bzDecompress(&strm);
+
+    if (err == BZ_OK && prev == strm.next_out) {
       rWarning("decompressBZ2 error: content is corrupt");
       break;
     }
-
-    if (bzerror == BZ_OK && strm.avail_in > 0 && strm.avail_out == 0) {
+    if (err == BZ_OK && strm.avail_out == 0) {
       out.resize(out.size() * 2);
     }
-  } while (bzerror == BZ_OK && !(abort && *abort));
+  }
 
   BZ2_bzDecompressEnd(&strm);
-  if (bzerror == BZ_STREAM_END && !(abort && *abort)) {
-    out.resize(strm.total_out_lo32);
-    out.shrink_to_fit();
-    return out;
-  }
-  return {};
+
+  if (err != BZ_STREAM_END || (abort && *abort)) return {};
+  out.resize(strm.total_out_lo32);
+  out.shrink_to_fit();
+  return out;
 }
 
 std::string decompressZST(const std::string& in, std::atomic<bool>* abort) {
-  return decompressZST((std::byte*)in.data(), in.size(), abort);
-}
+  if (in.empty()) return {};
 
-std::string decompressZST(const std::byte* in, size_t in_size, std::atomic<bool>* abort) {
+  // Single-shot when content size is known
+  size_t frame_size = ZSTD_getFrameContentSize(in.data(), in.size());
+  if (frame_size != ZSTD_CONTENTSIZE_ERROR && frame_size != ZSTD_CONTENTSIZE_UNKNOWN) {
+    std::string out(frame_size, '\0');
+    size_t result = ZSTD_decompress(out.data(), frame_size, in.data(), in.size());
+    if (ZSTD_isError(result)) {
+      rWarning("decompressZST error: %s", ZSTD_getErrorName(result));
+      return {};
+    }
+    out.resize(result);
+    return out;
+  }
+
+  // Streaming fallback for unknown content size
   ZSTD_DCtx* dctx = ZSTD_createDCtx();
   assert(dctx != nullptr);
 
-  // Initialize input and output buffers
-  ZSTD_inBuffer input = {in, in_size, 0};
-
-  // Estimate and reserve memory for decompressed data
-  size_t estimatedDecompressedSize = ZSTD_getFrameContentSize(in, in_size);
-  if (estimatedDecompressedSize == ZSTD_CONTENTSIZE_ERROR || estimatedDecompressedSize == ZSTD_CONTENTSIZE_UNKNOWN) {
-    estimatedDecompressedSize = in_size * 2;  // Use a fallback size
-  }
-
-  std::string decompressedData;
-  decompressedData.reserve(estimatedDecompressedSize);
-
-  const size_t bufferSize = ZSTD_DStreamOutSize();  // Recommended output buffer size
-  std::string outputBuffer(bufferSize, '\0');
+  ZSTD_inBuffer input = {in.data(), in.size(), 0};
+  std::string out(in.size() * 5, '\0');
+  size_t pos = 0;
 
   while (input.pos < input.size && !(abort && *abort)) {
-    ZSTD_outBuffer output = {outputBuffer.data(), bufferSize, 0};
-
+    ZSTD_outBuffer output = {out.data() + pos, out.size() - pos, 0};
     size_t result = ZSTD_decompressStream(dctx, &output, &input);
     if (ZSTD_isError(result)) {
-      rWarning("decompressZST error: content is corrupt");
-      break;
+      rWarning("decompressZST error: %s", ZSTD_getErrorName(result));
+      ZSTD_freeDCtx(dctx);
+      return {};
     }
-
-    decompressedData.append(outputBuffer.data(), output.pos);
+    pos += output.pos;
+    if (input.pos < input.size && pos == out.size()) {
+      out.resize(out.size() * 2);
+    }
   }
 
   ZSTD_freeDCtx(dctx);
-  if (!(abort && *abort)) {
-    decompressedData.shrink_to_fit();
-    return decompressedData;
-  }
-  return {};
+  if (abort && *abort) return {};
+
+  out.resize(pos);
+  out.shrink_to_fit();
+  return out;
 }
