@@ -32,6 +32,8 @@ public:
 
 private:
   void migrateOldEvents();
+  void addFrameEvents(cereal::Event::Which which, uint64_t mono_time, kj::ArrayPtr<const capnp::word> data);
+  kj::ArrayPtr<const capnp::word> copyToBuffer(kj::ArrayPtr<const capnp::word> data);
 
   std::string raw_log_data_;
   bool requires_migration = true;
