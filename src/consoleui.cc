@@ -365,7 +365,7 @@ int ConsoleUI::exec() {
     }
     handleKey(c);
 
-    if (rk.frame() % 25) {
+    if (rk.frame() % 10 == 0) {
       updateSize();
       updateSummary();
     }
