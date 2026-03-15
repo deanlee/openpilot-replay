@@ -3,12 +3,8 @@
 #include <curl/curl.h>
 
 #include <algorithm>
-#include <cmath>
 #include <fstream>
-#include <map>
-#include <mutex>
 #include <numeric>
-#include <utility>
 
 #include "config.h"
 #include "common/timing.h"
@@ -23,6 +19,37 @@ struct CURLGlobalInitializer {
 };
 
 static CURLGlobalInitializer curl_initializer;
+
+// RAII wrappers for CURL handles
+struct CurlEasy {
+  CURL* handle = curl_easy_init();
+  ~CurlEasy() { if (handle) curl_easy_cleanup(handle); }
+  operator CURL*() const { return handle; }
+  CurlEasy() = default;
+  CurlEasy(CurlEasy&& o) noexcept : handle(std::exchange(o.handle, nullptr)) {}
+  CurlEasy& operator=(CurlEasy&&) = delete;
+  CurlEasy(const CurlEasy&) = delete;
+  CurlEasy& operator=(const CurlEasy&) = delete;
+};
+
+struct CurlMulti {
+  CURLM* handle = curl_multi_init();
+  ~CurlMulti() { if (handle) curl_multi_cleanup(handle); }
+  operator CURLM*() const { return handle; }
+  CurlMulti() = default;
+  CurlMulti(const CurlMulti&) = delete;
+  CurlMulti& operator=(const CurlMulti&) = delete;
+};
+
+void runMulti(const CurlMulti& cm, std::atomic<bool>* abort, int wait_ms = 500) {
+  int still_running = 1;
+  while (still_running > 0 && !(abort && *abort)) {
+    if (curl_multi_perform(cm, &still_running) != CURLM_OK) break;
+    if (still_running > 0) {
+      curl_multi_wait(cm, nullptr, 0, wait_ms, nullptr);
+    }
+  }
+}
 
 // Thread-safe Global Progress Tracker
 struct DownloadStats {
@@ -58,7 +85,7 @@ struct DownloadStats {
 static DownloadStats g_stats;
 
 template <class T>
-struct MultiPartWriter {
+struct PartWriter {
   T* buf;
   size_t offset;
   size_t end;
@@ -67,11 +94,11 @@ struct MultiPartWriter {
 
   size_t write(char* data, size_t size, size_t count) {
     size_t bytes = size * count;
-    if ((offset + bytes) > end) return 0;
+    if (offset + bytes > end) return 0;
 
-    if constexpr (std::is_same<T, std::string>::value) {
+    if constexpr (std::is_same_v<T, std::string>) {
       memcpy(buf->data() + offset, data, bytes);
-    } else if constexpr (std::is_same<T, std::ofstream>::value) {
+    } else if constexpr (std::is_same_v<T, std::ofstream>) {
       buf->seekp(offset);
       buf->write(data, bytes);
     }
@@ -85,11 +112,8 @@ struct MultiPartWriter {
 
 template <class T>
 size_t write_cb(char* data, size_t size, size_t count, void* userp) {
-  auto w = (MultiPartWriter<T>*)userp;
-  return w->write(data, size, count);
+  return static_cast<PartWriter<T>*>(userp)->write(data, size, count);
 }
-
-size_t dumy_write_cb(char* data, size_t size, size_t count, void* userp) { return size * count; }
 
 }  // namespace
 
@@ -108,31 +132,26 @@ std::string formattedDataSize(size_t size) {
 }
 
 size_t getRemoteFileSize(const std::string& url, std::atomic<bool>* abort) {
-  CURL* curl = curl_easy_init();
-  if (!curl) return -1;
+  CurlEasy curl;
+  if (!curl.handle) return 0;
 
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, dumy_write_cb);
-  curl_easy_setopt(curl, CURLOPT_HEADER, 1);
   curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
-
-  CURLM* cm = curl_multi_init();
-  curl_multi_add_handle(cm, curl);
-  int still_running = 1;
-  while (still_running > 0 && !(abort && *abort)) {
-    CURLMcode mc = curl_multi_perform(cm, &still_running);
-    if (mc != CURLM_OK) break;
-    if (still_running > 0) {
-      curl_multi_wait(cm, nullptr, 0, 1000, nullptr);
-    }
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  if (abort) {
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,
+                     +[](void* p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) -> int {
+                       return *static_cast<std::atomic<bool>*>(p) ? 1 : 0;
+                     });
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, abort);
   }
+
+  if (curl_easy_perform(curl) != CURLE_OK) return 0;
 
   double content_length = -1;
   curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &content_length);
-  curl_multi_remove_handle(cm, curl);
-  curl_easy_cleanup(curl);
-  curl_multi_cleanup(cm);
-  return content_length > 0 ? (size_t)content_length : 0;
+  return content_length > 0 ? static_cast<size_t>(content_length) : 0;
 }
 
 std::string getUrlWithoutQuery(const std::string& url) {
@@ -145,24 +164,20 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
   g_stats.add(content_length);
 
   size_t threshold = (chunk_size > 0) ? chunk_size : DEFAULT_CHUNK_SIZE;
-  int parts = std::clamp((int)((content_length + threshold - 1) / threshold), 1, MAX_DOWNLOAD_PARTS);
-  const size_t part_size = content_length / parts;
+  int parts = std::clamp(static_cast<int>((content_length + threshold - 1) / threshold), 1, MAX_DOWNLOAD_PARTS);
+  size_t part_size = content_length / parts;
 
-  CURLM* cm = curl_multi_init();
-  std::vector<CURL*> handles;
-  std::vector<MultiPartWriter<T>> writers;
-  handles.reserve(parts);
-  writers.reserve(parts); // CRITICAL: prevent pointer invalidation
+  CurlMulti cm;
+  std::vector<CurlEasy> handles(parts);
+  std::vector<PartWriter<T>> writers;
+  writers.reserve(parts);
 
   for (int i = 0; i < parts; ++i) {
     size_t start = i * part_size;
     size_t end = (i == parts - 1) ? content_length : (i + 1) * part_size;
-    std::string range_str = util::string_format("%zu-%zu", start, end - 1);
-    writers.push_back({&buf, start, end, 0, range_str});
+    writers.push_back({&buf, start, end, 0, util::string_format("%zu-%zu", start, end - 1)});
 
-    CURL* eh = curl_easy_init();
-    handles.push_back(eh);
-
+    CURL* eh = handles[i];
     curl_easy_setopt(eh, CURLOPT_URL, url.c_str());
     curl_easy_setopt(eh, CURLOPT_WRITEFUNCTION, write_cb<T>);
     curl_easy_setopt(eh, CURLOPT_WRITEDATA, &writers.back());
@@ -170,21 +185,12 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
     curl_easy_setopt(eh, CURLOPT_HTTPGET, 1L);
     curl_easy_setopt(eh, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(eh, CURLOPT_FOLLOWLOCATION, 1L);
-
     curl_multi_add_handle(cm, eh);
   }
 
-  // Event loop
-  int still_running = 1;
-  while (still_running > 0 && !(abort && *abort)) {
-    if (curl_multi_perform(cm, &still_running) != CURLM_OK) break;
-    curl_multi_perform(cm, &still_running);
-    if (still_running > 0) {
-      curl_multi_wait(cm, nullptr, 0, 500, nullptr);
-    }
-  }
+  runMulti(cm, abort);
 
-  // Verification
+  // Verify results
   int success_count = 0;
   int msgs_left = -1;
   CURLMsg* msg;
@@ -201,16 +207,14 @@ bool httpDownload(const std::string& url, T& buf, size_t chunk_size, size_t cont
     }
   }
 
-  for (CURL* eh : handles) {
+  for (auto& eh : handles) {
     curl_multi_remove_handle(cm, eh);
-    curl_easy_cleanup(eh);
   }
-  curl_multi_cleanup(cm);
 
   uint64_t total_written = std::accumulate(writers.begin(), writers.end(), 0ULL,
                            [](uint64_t sum, const auto& w) { return sum + w.written; });
   bool success = (success_count == parts) && !(abort && *abort);
-  g_stats.update(0, success, true); // Force final UI update
+  g_stats.update(0, success, true);
   g_stats.remove(content_length, total_written);
 
   return success;
