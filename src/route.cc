@@ -9,6 +9,9 @@
 #include "replay.h"
 #include "util.h"
 
+// Matches the segment number embedded in file paths, e.g. ".../3/rlog.bz2"
+static const std::regex kSegNumRx(R"(\/([0-9]+)\/)");
+
 Route::Route(const std::string &route, const std::string &data_dir, bool auto_source)
     : route_string_(route), data_dir_(data_dir), auto_source_(auto_source) {}
 
@@ -90,11 +93,10 @@ bool Route::loadFromAutoSource() {
     setenv("OPENPILOT_PREFIX", origin_prefix, 1);
   }
 
-  const static std::regex rx(R"(\/(\d+)\/)");
-  for (int i = 0; i < log_files.size(); ++i) {
+  for (int i = 0; i < (int)log_files.size(); ++i) {
     int seg_num = i;
     std::smatch match;
-    if (std::regex_search(log_files[i], match, rx)) {
+    if (std::regex_search(log_files[i], match, kSegNumRx)) {
       seg_num = std::stoi(match[1]);
     }
     addFileToSegment(seg_num, log_files[i]);
@@ -123,16 +125,16 @@ bool Route::loadFromServer(int retries) {
     }
 
     err_ = RouteLoadError::NetworkError;
-    rWarning("Retrying %d/%d", i, retries);
-    util::sleep_for(3000);
+    if (i < retries) {
+      rWarning("Retrying %d/%d", i, retries);
+      util::sleep_for(3000);
+    }
   }
 
   return false;
 }
 
 bool Route::loadFromJson(const std::string& json_str) {
-  const static std::regex rx(R"(\/(\d+)\/)");
-
   try {
     auto data = json::parse(json_str);
 
@@ -141,7 +143,7 @@ bool Route::loadFromJson(const std::string& json_str) {
 
       for (const std::string& url : url_list) {
         std::smatch match;
-        if (std::regex_search(url, match, rx)) {
+        if (std::regex_search(url, match, kSegNumRx)) {
           addFileToSegment(std::stoi(match[1]), url);
         }
       }
