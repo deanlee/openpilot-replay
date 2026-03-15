@@ -3,7 +3,7 @@
 #include <set>
 #include <string>
 
-#define DEMO_ROUTE "a2a0ccea32023010|2023-07-27--13-01-19"
+#define DEMO_ROUTE "5beb9b58bd12b691/0000010a--a51155e496"
 
 constexpr int MIN_SEGMENTS_CACHE = 5;
 constexpr size_t DEFAULT_CHUNK_SIZE = 20 * 1024 * 1024;
