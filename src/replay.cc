@@ -220,7 +220,7 @@ void Replay::publishMessage(const Event *e) {
   auto bytes = e->data.asBytes();
   int ret = sockets_[e->which]->send((char*)bytes.begin(), bytes.size());
   if (ret == -1) {
-    rWarning("stop publishing %s due to multiple publishers error", sockets_[e->which]);
+    rWarning("stop publishing event %d due to multiple publishers error", static_cast<int>(e->which));
     delete sockets_[e->which];
     sockets_[e->which] = nullptr;
   }
