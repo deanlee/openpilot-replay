@@ -66,6 +66,10 @@ Replay::~Replay() {
   }
   camera_server_.reset();
   seg_mgr_.reset();
+
+  for (auto *socket : sockets_) {
+    delete socket;
+  }
   delete msg_ctx_;
 }
 
