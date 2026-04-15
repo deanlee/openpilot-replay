@@ -1,6 +1,7 @@
 #include "seg_mgr.h"
 
 #include <algorithm>
+#include <queue>
 
 SegmentManager::SegmentManager(const ReplayConfig& cfg)
     : flags_(cfg.flags), route_(cfg.route, cfg.data_dir, cfg.auto_source) {
@@ -99,20 +100,36 @@ bool SegmentManager::mergeSegments(const SegmentMap::iterator &begin, const Segm
 
   std::string segments_str = join(segments_to_merge, ", ");
   rDebug("merging segments: %s", segments_str.c_str());
+
+  using Range = std::pair<const Event *, const Event *>;  // [cur, end)
+  auto cmp = [](const Range &a, const Range &b) { return *b.first < *a.first; };
+  std::priority_queue<Range, std::vector<Range>, decltype(cmp)> pq(cmp);
+
   for (int n : segments_to_merge) {
     if (exit_) return false;
 
-    const auto &events = segments_.at(n)->log->events;
+    auto segment_it = segments_.find(n);
+    if (segment_it == segments_.end() || !segment_it->second) continue;
+
+    const auto &events = segment_it->second->log->events;
     if (events.empty()) continue;
 
-    // Skip INIT_DATA if present
-    auto events_begin = (events.front().which == cereal::Event::Which::INIT_DATA) ? std::next(events.begin()) : events.begin();
+    // Skip INIT_DATA if present.
+    const Event *first = events.data() + (events.front().which == cereal::Event::Which::INIT_DATA ? 1 : 0);
+    const Event *last = events.data() + events.size();
+    if (first < last) {
+      pq.push({first, last});
+      merged_event_data->segments[n] = segment_it->second;
+    }
+  }
 
-    size_t previous_size = merged_events.size();
-    merged_events.insert(merged_events.end(), events_begin, events.end());
-    std::inplace_merge(merged_events.begin(), merged_events.begin() + previous_size, merged_events.end());
+  while (!pq.empty()) {
+    if (exit_) return false;
 
-    merged_event_data->segments[n] = segments_.at(n);
+    auto [cur, last] = pq.top();
+    pq.pop();
+    merged_events.push_back(*cur);
+    if (++cur < last) pq.push({cur, last});
   }
 
   std::atomic_store(&event_data_, std::move(merged_event_data));
